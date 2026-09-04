@@ -1,0 +1,509 @@
+<!DOCTYPE html>
+<html lang="ko">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>SEMS - 서울시 도로굴착복구 관리 Dashboard Beta 2.1</title>
+  
+  <!-- Pretendard & Inter Web Font -->
+  <link rel="stylesheet" as="style" crossorigin href="https://cdn.jsdelivr.net/gh/orioncactus/pretendard@v1.3.9/dist/web/static/pretendard.min.css" />
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800;900&display=swap" rel="stylesheet">
+  
+  <!-- Lucide Icons -->
+  <script src="https://unpkg.com/lucide@latest"></script>
+
+  <!-- SheetJS (xlsx) CDN -->
+  <script src="https://cdn.jsdelivr.net/npm/xlsx@0.18.5/dist/xlsx.full.min.js"></script>
+
+  <!-- Canvas Confetti CDN -->
+  <script src="https://cdn.jsdelivr.net/npm/canvas-confetti@1.6.0/dist/confetti.browser.min.js"></script>
+
+  <link rel="stylesheet" href="styles.css">
+</head>
+<body>
+  <!-- Ambient background glow elements -->
+  <div class="bg-glow-1"></div>
+  <div class="bg-glow-2"></div>
+
+  <!-- Login Modal Overlay for Secured Access Control -->
+  <div id="loginModalOverlay" class="login-modal-overlay">
+    <div class="login-modal-card glass-panel">
+      <div class="login-modal-header">
+        <div class="header-icon-box" style="width: 52px; height: 52px; margin: 0 auto 12px; font-size: 26px;">
+          <i data-lucide="shield-check" style="color: white; width: 28px; height: 28px;"></i>
+        </div>
+        <h2 style="font-size: 1.5rem; font-weight: 900; color: #0f172a; letter-spacing: -0.5px;">SEMS Dashboard LogIn</h2>
+        <p style="font-size: 0.82rem; color: #64748b; margin-top: 4px;">서울시 도로굴착복구 관리 시스템 접속 인증</p>
+      </div>
+
+      <form id="loginForm" onsubmit="handleLoginSubmit(event)" class="login-form">
+        <div class="form-group">
+          <label for="loginId">아이디 (ID)</label>
+          <div class="input-icon-wrapper">
+            <i data-lucide="user" class="field-icon"></i>
+            <input type="text" id="loginId" class="text-input" placeholder="아이디를 입력하세요" required autocomplete="username" />
+          </div>
+        </div>
+
+        <div class="form-group">
+          <label for="loginPassword">비밀번호 (Password)</label>
+          <div class="input-icon-wrapper">
+            <i data-lucide="lock" class="field-icon"></i>
+            <input type="password" id="loginPassword" class="text-input" placeholder="비밀번호를 입력하세요" required autocomplete="current-password" />
+          </div>
+        </div>
+
+        <div id="loginErrorMessage" class="login-error-msg" style="display: none;">
+          <i data-lucide="alert-circle" style="width: 14px; height: 14px;"></i>
+          <span id="loginErrorText">아이디 또는 비밀번호가 일치하지 않습니다.</span>
+        </div>
+
+        <button type="submit" class="btn btn-primary btn-login-submit">
+          <i data-lucide="log-in"></i>
+          <span>대시보드 접속하기</span>
+        </button>
+      </form>
+    </div>
+  </div>
+
+  <!-- Main Dashboard Container (Hidden until logged in) -->
+  <div id="dashboardAppContainer" class="dashboard-container" style="display: none;">
+    
+    <!-- 1. Header Area (No Wrap Fixed Single-Line Layout & Perfectly Aligned Action Buttons) -->
+    <header class="glass-panel header-panel">
+      <div class="header-title-group">
+        <div class="header-icon-box" style="width: 44px; height: 44px; font-size: 22px; flex-shrink: 0;">
+          <i data-lucide="layout-dashboard" style="color: white; width: 24px; height: 24px;"></i>
+        </div>
+        <div class="header-title">
+          <div style="display: flex; flex-direction: column; justify-content: center; gap: 3px;">
+            <div style="display: flex; align-items: center; gap: 8px; flex-wrap: nowrap;">
+              <h1 style="font-size: 1.95rem; font-weight: 900; color: #0f172a; display: flex; align-items: center; gap: 6px; letter-spacing: -0.8px; line-height: 1; white-space: nowrap; margin: 0;">
+                SEMS
+                <span class="version-badge" style="font-size: 0.76rem; padding: 2px 8px; border-radius: 10px; background: linear-gradient(135deg, #2563eb, #7c3aed);">Beta 2.2</span>
+              </h1>
+              <span style="font-size: 0.78rem; color: #475569; font-weight: 600; background: #f1f5f9; padding: 3px 10px; border-radius: 6px; border: 1px solid #cbd5e1; white-space: nowrap;">서울시 도로굴착복구 관리 Dashboard</span>
+            </div>
+            <div style="font-size: 0.84rem; font-weight: 600; color: #475569; letter-spacing: -0.2px; line-height: 1;">
+              (Seoul Excavation Management System)
+            </div>
+          </div>
+        </div>
+      </div>
+
+      <!-- Perfectly Aligned Header Action Buttons -->
+      <div class="header-actions">
+        <!-- 1. Refresh Google Sheet Data Button Wrapper with Sub Timestamp Label -->
+        <div class="upload-btn-column">
+          <button id="btnRefreshData" class="btn btn-primary btn-header" style="width: 100%; justify-content: center;" title="구글 시트에서 최신 데이터 가져오기">
+            <i data-lucide="refresh-cw" style="width: 14px; height: 14px;"></i>
+            <span>구글시트 데이터 새로고침</span>
+          </button>
+          <!-- Perfectly Flush Right Sub Timestamp Badge -->
+          <span id="dataTimestampBadge" class="timestamp-sub-badge">
+            <i data-lucide="clock" style="width:11px; height:11px;"></i>
+            <span id="timestampText">구글시트 연동 대기중...</span>
+          </span>
+        </div>
+
+        <!-- 2. 서울시 도로굴착복구시스템 Link Button -->
+        <a href="https://roaddig.seoul.go.kr/loginPage.do" target="_blank" rel="noopener noreferrer" class="btn btn-secondary btn-header" style="border-color: #bfdbfe; background: #eff6ff; color: #1d4ed8; text-decoration: none;" title="서울시 도로굴착복구시스템 새창 열기">
+          <i data-lucide="external-link" style="color:#2563eb; width: 14px; height: 14px;"></i>
+          <span>도로굴착복구시스템 연결</span>
+        </a>
+
+        <!-- 3. Web Shared Data Sync Export Button -->
+        <button id="btnExportSharedJson" class="btn btn-secondary btn-header" style="border-color: #a7f3d0; background: #ecfdf5; color: #047857;" title="웹호스팅 서버 업로드용 통합 데이터 내보내기">
+          <i data-lucide="cloud-upload" style="color:#059669; width: 14px; height: 14px;"></i>
+          <span>웹 데이터 내보내기</span>
+        </button>
+
+        <!-- 4. Logout Button -->
+        <button id="btnLogout" class="btn btn-secondary btn-header" style="color: #dc2626; border-color: #fecaca; background: #fef2f2;" title="대시보드 로그아웃">
+          <i data-lucide="log-out" style="width: 14px; height: 14px;"></i>
+          <span>로그아웃</span>
+        </button>
+      </div>
+    </header>
+
+    <!-- 2. Filter & Search Control Panel -->
+    <section class="glass-panel filter-panel">
+      <div class="filter-header">
+        <div class="filter-title">
+          <i data-lucide="sliders" style="color: #2563eb;"></i>
+          <span>필터 & 검색</span>
+        </div>
+        <div style="display: flex; align-items: center; gap: 8px; flex-wrap: wrap;">
+          <span class="filter-badge" id="activeFilterBadge">전체 데이터 조회중</span>
+          <button id="btnResetFilter" class="btn btn-secondary" style="padding: 5px 10px; font-size: 0.78rem;">
+            <i data-lucide="rotate-ccw"></i>
+            <span>필터 초기화</span>
+          </button>
+        </div>
+      </div>
+
+      <!-- 3 Distinct Filter Section Cards -->
+      <div class="filter-grid-3sections">
+        
+        <!-- Section 1 -->
+        <div class="filter-section-card z-index-high">
+          <label class="filter-label">
+            <i data-lucide="building-2"></i>
+            <span>담당BP / 관리 지자체 / 구축팀 / 도급사</span>
+          </label>
+          <div class="input-row" style="margin-top: 6px; position: relative;">
+            <select id="selectOrgCategory" class="select-input" style="flex: 1.1;">
+              <option value="BP사" selected>BP사</option>
+              <option value="지자체">지자체 (다중선택)</option>
+              <option value="구축팀">구축팀</option>
+              <option value="도급사">도급사</option>
+            </select>
+            
+            <select id="selectOrgValue" class="select-input" style="flex: 1.6;">
+              <option value="ALL">전체 항목</option>
+            </select>
+
+            <div id="orgMultiSelectWrapper" style="display: none; flex: 1.6; position: relative;">
+              <button type="button" id="btnMultiSelectToggle" class="select-input" style="text-align: left; display: flex; justify-content: space-between; align-items: center; background: #ffffff; cursor: pointer; height: 100%;">
+                <span id="multiSelectLabel" style="overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-weight: 600; color: #2563eb;">전체 지자체</span>
+                <i data-lucide="chevron-down" style="width: 14px; height: 14px; color: #64748b; flex-shrink: 0;"></i>
+              </button>
+              
+              <div id="multiSelectPopover" class="multiselect-popover" style="display: none;">
+                <div class="multiselect-header">
+                  <span style="font-weight: 700; font-size: 0.76rem; color: #0f172a;">지자체 다중 선택</span>
+                  <div style="display: flex; gap: 6px;">
+                    <button type="button" id="btnSelectAllDistricts" class="btn-text">전체선택</button>
+                    <button type="button" id="btnClearDistricts" class="btn-text" style="color: #dc2626;">해제</button>
+                  </div>
+                </div>
+                <div id="districtCheckboxList" class="multiselect-body"></div>
+              </div>
+            </div>
+          </div>
+        </div>
+
+        <!-- Section 2 -->
+        <div class="filter-section-card">
+          <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 4px;">
+            <label class="filter-label">
+              <i data-lucide="calendar"></i>
+              <span>조회 기간설정</span>
+            </label>
+            <div class="quick-preset-btns">
+              <button type="button" class="preset-btn" data-preset="YEAR">당해년도</button>
+              <button type="button" class="preset-btn" data-preset="12M">12개월</button>
+              <button type="button" class="preset-btn" data-preset="6M">6개월</button>
+              <button type="button" class="preset-btn" data-preset="3M">3개월</button>
+              <button type="button" class="preset-btn" data-preset="1M">1개월</button>
+            </div>
+          </div>
+          <div class="input-row">
+            <select id="selectDateCategory" class="select-input" style="flex: 1.1;">
+              <option value="신청접수일" selected>신청접수일</option>
+              <option value="허가승인일">허가승인일</option>
+            </select>
+            <div class="date-range-box" style="flex: 2.1;">
+              <input type="date" id="inputStartDate" class="date-input" />
+              <span class="date-sep">~</span>
+              <input type="date" id="inputEndDate" class="date-input" />
+            </div>
+          </div>
+        </div>
+
+        <!-- Section 3 -->
+        <div class="filter-section-card">
+          <label class="filter-label">
+            <i data-lucide="search"></i>
+            <span>공사명 / 허가번호 키워드 검색</span>
+          </label>
+          <div class="input-row" style="margin-top: 6px;">
+            <select id="selectSearchCategory" class="select-input" style="flex: 1;">
+              <option value="공사명">공사명</option>
+              <option value="허가번호">허가번호</option>
+            </select>
+            <input type="text" id="inputSearchKeyword" class="text-input" placeholder="키워드 입력 (유사단어 포함검색)..." style="flex: 1.8;" />
+          </div>
+        </div>
+
+      </div>
+    </section>
+
+    <!-- 3. Main Split Grid -->
+    <main class="dashboard-main-grid">
+      
+      <!-- Left Sidebar -->
+      <aside class="sidebar-cards-panel">
+        
+        <!-- Card 1 -->
+        <article class="glass-panel summary-card card-permit">
+          <div class="card-header">
+            <div class="card-title-group">
+              <h3>허가관리</h3>
+            </div>
+            <div class="card-icon-box">
+              <i data-lucide="file-check-2" style="width:20px; height:20px; color: #2563eb;"></i>
+            </div>
+          </div>
+          <div class="card-items-grid">
+            <div class="card-item-col" id="colPermitOngoing">
+              <span class="item-label">진행중</span>
+              <span class="item-val" id="cntPermitOngoing">0건</span>
+            </div>
+            <div class="card-item-col" id="colPermitChange">
+              <span class="item-label">허가변경</span>
+              <span class="item-val" id="cntPermitChange">0건</span>
+            </div>
+            <div class="card-item-col" id="colPermitReject">
+              <span class="item-label">불가(보완요청)</span>
+              <span class="item-val" id="cntPermitReject">0건</span>
+            </div>
+          </div>
+        </article>
+
+        <!-- Card 2 -->
+        <article class="glass-panel summary-card card-payment">
+          <div class="card-header">
+            <div class="card-title-group">
+              <h3>납부관리</h3>
+            </div>
+            <div class="card-icon-box">
+              <i data-lucide="credit-card" style="width:20px; height:20px; color: #7c3aed;"></i>
+            </div>
+          </div>
+          <div class="card-items-grid grid-4-cols">
+            <div class="card-item-col" id="colPaymentNotice">
+              <span class="item-label">고지서발행</span>
+              <span class="item-val" id="cntPaymentNotice">0건</span>
+            </div>
+            <div class="card-item-col" id="colPaymentPaid">
+              <span class="item-label">납부완료</span>
+              <span class="item-val" id="cntPaymentPaid">0건</span>
+            </div>
+            <div class="card-item-col" id="colPaymentRefundTarget">
+              <span class="item-label">환수대상</span>
+              <span class="item-val" id="cntPaymentRefundTarget">0건</span>
+            </div>
+            <div class="card-item-col" id="colPaymentPostPayTarget">
+              <span class="item-label">사후납대상</span>
+              <span class="item-val" id="cntPaymentPostPayTarget">0건</span>
+            </div>
+          </div>
+        </article>
+
+        <!-- Card 3 -->
+        <article class="glass-panel summary-card card-construction">
+          <div class="card-header">
+            <div class="card-title-group">
+              <h3>착공 및 복구공사</h3>
+            </div>
+            <div class="card-icon-box">
+              <i data-lucide="hard-hat" style="width:20px; height:20px; color: #d97706;"></i>
+            </div>
+          </div>
+          <div class="card-items-grid">
+            <div class="card-item-col" id="colConstPermitIssue">
+              <span class="item-label">허가증교부</span>
+              <span class="item-val" id="cntConstPermitIssue">0건</span>
+            </div>
+            <div class="card-item-col" id="colConstStartSubmit">
+              <span class="item-label">착공계제출</span>
+              <span class="item-val" id="cntConstStartSubmit">0건</span>
+            </div>
+            <div class="card-item-col" id="colConstRestoreDone">
+              <span class="item-label">복구공사 완료</span>
+              <span class="item-val" id="cntConstRestoreDone">0건</span>
+            </div>
+          </div>
+        </article>
+
+        <!-- Card 4 -->
+        <article class="glass-panel summary-card card-completion">
+          <div class="card-header">
+            <div class="card-title-group">
+              <h3>준공관리</h3>
+            </div>
+            <div class="card-icon-box">
+              <i data-lucide="check-circle-2" style="width:20px; height:20px; color: #059669;"></i>
+            </div>
+          </div>
+          <div class="card-items-grid">
+            <div class="card-item-col" id="colCompWriting">
+              <span class="item-label">준공계작성중</span>
+              <span class="item-val" id="cntCompWriting">0건</span>
+            </div>
+            <div class="card-item-col" id="colCompReceived">
+              <span class="item-label">준공계접수</span>
+              <span class="item-val" id="cntCompReceived">0건</span>
+            </div>
+            <div class="card-item-col" id="colCompDone">
+              <span class="item-label">준공완료</span>
+              <span class="item-val" id="cntCompDone">0건</span>
+            </div>
+          </div>
+        </article>
+
+      </aside>
+
+      <!-- Right Table Area -->
+      <section class="glass-panel table-panel">
+        <div class="table-header">
+          <div class="table-title-box">
+            <i data-lucide="table" id="tableHeaderIcon" style="color: #2563eb;"></i>
+            <h3 id="tableHeaderTitle" style="font-size: 0.95rem; font-weight: 700; color:#0f172a;">인허가 및 공사 목록 상세</h3>
+            <span class="table-count-tag" id="tableRecordCount">0건 표시 중</span>
+          </div>
+          <button id="btnExportExcel" class="btn btn-accent" style="padding: 5px 12px; font-size: 0.78rem;">
+            <i data-lucide="file-output"></i>
+            <span>조회 결과 엑셀 내보내기</span>
+          </button>
+        </div>
+
+        <div class="table-wrapper">
+          <table id="dataTable">
+            <thead id="tableHead"></thead>
+            <tbody id="tableBody"></tbody>
+          </table>
+        </div>
+
+        <div id="paginationControls" class="pagination-container"></div>
+      </section>
+
+    </main>
+
+    <!-- 4. Footer Area -->
+    <footer class="footer-dual-container" style="display: grid; grid-template-columns: 1.2fr 1fr 1fr; gap: 10px; margin-top: 10px;">
+      
+      <!-- Panel 1 -->
+      <div class="glass-panel footer-panel" style="padding: 12px 14px; display: flex; justify-content: space-between; align-items: center; gap: 8px;">
+        <div style="display: flex; align-items: center; gap: 8px;">
+          <div style="width: 32px; height: 32px; background: #eff6ff; border: 1px solid #bfdbfe; border-radius: 8px; display: flex; align-items: center; justify-content: center; flex-shrink: 0;">
+            <i data-lucide="file-cog" style="color: #2563eb; width: 16px; height: 16px;"></i>
+          </div>
+          <div>
+            <h4 style="font-size: 0.82rem; font-weight: 800; color: #0f172a; display: flex; align-items: center; gap: 4px;">
+              수동 맵핑 DB
+              <span id="contractorDbBadge" style="font-size: 0.65rem; font-weight: 600; color: #059669; background: #ecfdf5; border: 1px solid #a7f3d0; padding: 1px 6px; border-radius: 8px;">0건</span>
+            </h4>
+            <p style="font-size: 0.7rem; color: #64748b; margin-top: 2px;">BP사, 도급사, 공사매체/구분, TANGO공사코드/비고를 수동 적용합니다.</p>
+          </div>
+        </div>
+        <div style="display: flex; align-items: center; gap: 4px; flex-shrink: 0;">
+          <button id="btnManageManualBP" class="btn btn-secondary" style="font-size: 0.72rem; padding: 4px 7px; border-color: #93c5fd; background: #eff6ff; color: #1e40af;" title="예외 BP사 수동 지정 관리">
+            <i data-lucide="user-cog" style="color: #2563eb; width: 13px; height: 13px;"></i> 예외BP
+          </button>
+          <button id="btnDownloadContractorTemplate" class="btn btn-secondary" style="font-size: 0.72rem; padding: 4px 7px;" title="현재 연동 DB 전체 엑셀 출력 다운로드">양식 다운로드</button>
+        </div>
+      </div>
+
+      <!-- Panel 2 -->
+      <div class="glass-panel footer-panel" style="padding: 12px 14px; display: flex; justify-content: space-between; align-items: center; gap: 8px;">
+        <div style="display: flex; align-items: center; gap: 8px;">
+          <div style="width: 32px; height: 32px; background: #f3e8ff; border: 1px solid #d8b4fe; border-radius: 8px; display: flex; align-items: center; justify-content: center; flex-shrink: 0;">
+            <i data-lucide="receipt" style="color: #7c3aed; width: 16px; height: 16px;"></i>
+          </div>
+          <div>
+            <h4 style="font-size: 0.82rem; font-weight: 800; color: #0f172a; display: flex; align-items: center; gap: 4px;">
+              고지서 / 납부현황 DB
+              <span id="paymentDbBadge" style="font-size: 0.65rem; font-weight: 600; color: #7c3aed; background: #faf5ff; border: 1px solid #e9d5ff; padding: 1px 6px; border-radius: 8px;">0건</span>
+            </h4>
+            <p style="font-size: 0.7rem; color: #64748b; margin-top: 2px;">구글시트 '납부현황목록' 데이터를 반영합니다.</p>
+          </div>
+        </div>
+        <div style="display: flex; align-items: center; gap: 4px; flex-shrink: 0;">
+          <button id="btnDownloadPaymentTemplate" class="btn btn-secondary" style="font-size: 0.72rem; padding: 4px 7px;" title="현재 연동 DB 전체 엑셀 출력 다운로드">양식 다운로드</button>
+        </div>
+      </div>
+
+      <!-- Panel 3 -->
+      <div class="glass-panel footer-panel" style="padding: 12px 14px; display: flex; justify-content: space-between; align-items: center; gap: 8px;">
+        <div style="display: flex; align-items: center; gap: 8px;">
+          <div style="width: 32px; height: 32px; background: #fff7ed; border: 1px solid #fed7aa; border-radius: 8px; display: flex; align-items: center; justify-content: center; flex-shrink: 0;">
+            <i data-lucide="scale" style="color: #c2410c; width: 16px; height: 16px;"></i>
+          </div>
+          <div>
+            <h4 style="font-size: 0.82rem; font-weight: 800; color: #0f172a; display: flex; align-items: center; gap: 4px;">
+              환수 / 사후납 대상 DB
+              <span id="refundDbBadge" style="font-size: 0.65rem; font-weight: 600; color: #c2410c; background: #fff7ed; border: 1px solid #ffedd5; padding: 1px 6px; border-radius: 8px;">0건</span>
+            </h4>
+            <p style="font-size: 0.7rem; color: #64748b; margin-top: 2px;">구글시트 '환수사후납정리' 내역을 반영합니다.</p>
+          </div>
+        </div>
+        <div style="display: flex; align-items: center; gap: 4px; flex-shrink: 0;">
+          <button id="btnDownloadRefundTemplate" class="btn btn-secondary" style="font-size: 0.72rem; padding: 4px 7px;" title="현재 연동 DB 전체 엑셀 출력 다운로드">양식 다운로드</button>
+        </div>
+      </div>
+
+    </footer>
+
+  </div>
+
+  <!-- Modal Popup -->
+  <div id="manualBpModal" class="modal-overlay" style="display: none;">
+    <div class="modal-content glass-panel">
+      <div class="modal-header">
+        <div style="display: flex; align-items: center; gap: 8px;">
+          <i data-lucide="user-cog" style="color: #2563eb; width: 20px; height: 20px;"></i>
+          <h3 style="font-size: 1.05rem; font-weight: 800; color: #0f172a;">예외 BP사 수동 관리 DB</h3>
+        </div>
+        <button id="btnCloseManualBpModal" class="btn-icon">&times;</button>
+      </div>
+      
+      <div class="modal-body" style="display: flex; flex-direction: column; gap: 10px;">
+        <p style="font-size: 0.8rem; color: #475569; line-height: 1.5;">
+          지정 자치구 외 예외적으로 타 BP사가 수행하는 허가건을 수동 지정할 수 있습니다.<br>
+          <span style="color: #2563eb; font-weight: 700;">📌 수동 등록된 내역은 브라우저 내부 DB에 보관되며, 새로운 엑셀 파일이 업로드되어도 자동 유지/우선 반영됩니다.</span>
+        </p>
+
+        <div class="manual-bp-form" style="background: #f8fafc; border: 1px solid #cbd5e1; border-radius: 8px; padding: 12px; display: flex; gap: 8px; flex-wrap: wrap; align-items: flex-end;">
+          <div style="flex: 1.5; min-width: 170px;">
+            <label class="filter-label" style="margin-bottom: 4px;">허가번호 (엑셀 데이터 대조)</label>
+            <input type="text" id="inputManualPermitNo" class="text-input" placeholder="예: 영등포구-2024-통신-0114" />
+          </div>
+          <div style="flex: 1.2; min-width: 140px;">
+            <label class="filter-label" style="margin-bottom: 4px;">지정할 BP사</label>
+            <select id="selectManualBPCompany" class="select-input">
+              <option value="㈜부민통신">㈜부민통신</option>
+              <option value="에프투텔레콤㈜">에프투텔레콤㈜</option>
+              <option value="엘케이테크넷㈜">엘케이테크넷㈜</option>
+              <option value="㈜세하통신">㈜세하통신</option>
+              <option value="㈜이화텔레콤">㈜이화텔레콤</option>
+              <option value="㈜지앤에스기술">㈜지앤에스기술</option>
+              <option value="오티씨㈜">오티씨㈜</option>
+              <option value="우일정보기술㈜">우일정보기술㈜</option>
+              <option value="㈜우호텔레콤">㈜우호텔레콤</option>
+              <option value="㈜컴피아">㈜컴피아</option>
+              <option value="CUSTOM">✏️ [직접 입력]</option>
+            </select>
+          </div>
+          <div id="customBpInputWrapper" style="display: none; flex: 1.2; min-width: 130px;">
+            <label class="filter-label" style="margin-bottom: 4px;">BP사 텍스트 입력</label>
+            <input type="text" id="inputCustomBPCompany" class="text-input" placeholder="신규 BP사명 입력..." />
+          </div>
+          <button id="btnSaveManualBP" class="btn btn-primary" style="padding: 7px 14px;">
+            <i data-lucide="plus-circle"></i> 지정 저장
+          </button>
+        </div>
+
+        <div style="max-height: 220px; overflow-y: auto; border: 1px solid #e2e8f0; border-radius: 8px;">
+          <table style="width: 100%; border-collapse: collapse; font-size: 0.78rem;">
+            <thead style="background: #f8fafc; position: sticky; top: 0; z-index: 1;">
+              <tr>
+                <th style="padding: 7px 10px; border-bottom: 1px solid #e2e8f0;">허가번호</th>
+                <th style="padding: 7px 10px; border-bottom: 1px solid #e2e8f0;">수동 지정 BP사</th>
+                <th style="padding: 7px 10px; border-bottom: 1px solid #e2e8f0;">등록 일시</th>
+                <th style="padding: 7px 10px; border-bottom: 1px solid #e2e8f0; width: 60px; text-align: center;">관리</th>
+              </tr>
+            </thead>
+            <tbody id="manualBpTableBody"></tbody>
+          </table>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <script src="app.js"></script>
+</body>
+</html>
