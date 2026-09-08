@@ -1,7 +1,7 @@
 /**
  * SEMS (Seoul Excavation Management System)
  * Dashboard Logic & Dynamic Data Engine
- * Modern Pure White Clean Light Theme Edition (Beta 2.2)
+ * Modern Pure White Clean Light Theme Edition (Ver 1.0)
  * Integrated Web Hosting Authentication & Global Sync Engine
  */
 
@@ -28,9 +28,9 @@ const CONTRACTOR_STORAGE_KEY = 'SEMS_CONTRACTOR_MAP_DB';
 const PAYMENT_DB_STORAGE_KEY = 'SEMS_PAYMENT_DB';
 const REFUND_POSTPAY_DB_STORAGE_KEY = 'SEMS_REFUND_POSTPAY_DB';
 
-// Pagination State (Exact 12 items per page for exact card-table height alignment!)
+// Pagination State (Exact 10 items per page for exact card-table height alignment!)
 let currentPage = 1;
-const itemsPerPage = 12;     
+const itemsPerPage = 10;     
 
 // Exact Partner & District Mapping Dictionary
 const BP_DISTRICT_MAP = [
@@ -273,41 +273,6 @@ function loadRefundPostpayDataFromDB() {
 }
 
 /**
- * Web Hosting Shared Central Sync Engine
- * Automatically fetches 'sems_data.json' from web server root if present!
- * Allows ALL visitors linking to the web app to view identical updated data!
- */
-async function loadSharedWebData() {
-  try {
-    const response = await fetch('./sems_data.json', { cache: 'no-cache' });
-    if (response.ok) {
-      const sharedData = await response.json();
-      if (sharedData && sharedData.rawData && Array.isArray(sharedData.rawData)) {
-        rawData = sharedData.rawData;
-        if (sharedData.contractorMap) saveContractorMap(sharedData.contractorMap);
-        if (sharedData.paymentMap) {
-          savePaymentDBMap(sharedData.paymentMap);
-          loadPaymentDataFromDB();
-        }
-        if (sharedData.refundMap) {
-          saveRefundPostpayDBMap(sharedData.refundMap);
-          loadRefundPostpayDataFromDB();
-        }
-        if (sharedData.manualBpMap) saveManualBPMap(sharedData.manualBpMap);
-        
-        updateDataTimestamp(sharedData.timestamp || getCurrentFormattedTimestamp());
-        populateDropdownOptions();
-        updateDefaultDateRange();
-        applyFilters();
-        console.log('Successfully loaded central shared sems_data.json from Web Server!');
-      }
-    }
-  } catch (err) {
-    console.log('Central shared sems_data.json not found on web server. Using local database.');
-  }
-}
-
-/**
  * Helper function to generate MMDD_hhmm timestamp string for excel exports
  */
 function getFileTimestampString() {
@@ -317,42 +282,6 @@ function getFileTimestampString() {
   const hh = String(now.getHours()).padStart(2, '0');
   const min = String(now.getMinutes()).padStart(2, '0');
   return `${mm}${dd}_${hh}${min}`;
-}
-
-/**
- * Export Central Shared JSON for Web Hosting Upload (Standard fixed filename: sems_data.json)
- */
-function exportSharedWebJson() {
-  if (rawData.length === 0 && paymentData.length === 0 && refundPostpayData.length === 0) {
-    alert('내보낼 대시보드 데이터가 없습니다. 먼저 인허가 엑셀을 업로드하세요.');
-    return;
-  }
-
-  const exportPayload = {
-    version: 'Beta 2.2',
-    timestamp: getCurrentFormattedTimestamp(),
-    rawData: rawData,
-    contractorMap: getContractorMap(),
-    paymentMap: getPaymentDBMap(),
-    refundMap: getRefundPostpayDBMap(),
-    manualBpMap: getManualBPMap()
-  };
-
-  const jsonString = JSON.stringify(exportPayload, null, 2);
-  const blob = new Blob([jsonString], { type: 'application/json' });
-  const url = URL.createObjectURL(blob);
-
-  const filename = 'sems_data.json';
-
-  const a = document.createElement('a');
-  a.href = url;
-  a.download = filename;
-  document.body.appendChild(a);
-  a.click();
-  document.body.removeChild(a);
-  URL.revokeObjectURL(url);
-
-  alert(`🌐 [${filename}] 통합 공유 데이터 파일 내보내기 완료!\n\n다운로드된 [${filename}] 파일을 그대로 웹호스팅 서버의 웹 루트 폴더(index.html과 동일한 위치)에 덮어쓰기 업로드하시면, 접속하는 모든 사용자에게 최신 데이터가 즉시 연동됩니다.`);
 }
 
 /**
@@ -437,25 +366,75 @@ function getCurrentFormattedTimestamp() {
 }
 
 /**
- * Renamed to '최종 업로드'
+ * 구글시트 타임스탬프 뱃지 텍스트 및 디자인 업데이트
  */
-function updateDataTimestamp(timestampStr) {
+function updateDataTimestamp(dateStr, isError = false) {
   const elem = document.getElementById('timestampText');
-  if (elem) {
-    if (rawData.length === 0) {
-      elem.textContent = timestampStr || '구글시트 데이터 로드중...';
-    } else {
-      elem.textContent = timestampStr || `최종 연동 : ${getCurrentFormattedTimestamp()}`;
+  if (!elem) return;
+
+  if (isError) {
+    elem.innerHTML = `<span style="color:#dc2626; font-weight:700; font-size:0.75rem;">${dateStr}</span>`;
+    return;
+  }
+
+  if (!dateStr || dateStr === 'loading') {
+    elem.innerHTML = `<span style="color:#64748b; font-weight:500; font-size:0.75rem;">구글 시트 연동 중...</span>`;
+    return;
+  }
+
+  elem.innerHTML = `
+    <span style="color:#334155; font-weight:600; font-size:0.75rem; margin-right:2px;">데이터 추출일 :</span>
+    <span style="color:#1d4ed8; font-weight:800; font-size:0.78rem; font-family:'Inter', -apple-system, sans-serif; background:#eff6ff; padding:2px 7px; border-radius:4px; border:1px solid #bfdbfe; display:inline-block;">${dateStr}</span>
+  `;
+}
+
+/**
+ * 구글시트 '신청서별허가현황' sheet의 A3:C3 (3번째 행, 1~3번째 열) 출력일자 추출 및 정제
+ */
+function extractSheetPrintDate(approvalData) {
+  if (!approvalData || approvalData.length === 0) return '';
+
+  let rawText = '';
+  // 1. A3:C3 (3번째 행, index 2) 확인
+  if (approvalData.length >= 3 && approvalData[2]) {
+    const a3c3Row = approvalData[2];
+    const cellValues = a3c3Row.slice(0, 3).map(v => String(v || '').trim()).filter(Boolean);
+    rawText = cellValues.join(' ');
+  }
+
+  // 2. Fallback: 상위 5개 행에서 '출력일' 키워드가 포함된 셀 탐색
+  if (!rawText) {
+    for (let r = 0; r < Math.min(approvalData.length, 5); r++) {
+      const row = approvalData[r];
+      if (!row) continue;
+      for (let c = 0; c < Math.min(row.length, 5); c++) {
+        const val = String(row[c] || '').trim();
+        if (val.includes('출력일')) {
+          rawText = val;
+          break;
+        }
+      }
+      if (rawText) break;
     }
   }
+
+  if (!rawText) return '';
+
+  // 3. '▣출력일 :', '출력일자 :', '출력일시 :' 등에서 순수 날짜/시간 텍스트만 정제
+  let cleaned = rawText
+    .replace(/[▣■□▶]/g, '')
+    .replace(/출력일자|출력일시|출력일/g, '')
+    .replace(/^[\s:]+/, '')
+    .trim();
+
+  return cleaned || rawText;
 }
 
 /**
  * Netlify Serverless Function (getData.js)을 불러와 구글 시트 데이터 반영
  */
 async function fetchDashboardData() {
-  const timestampText = document.getElementById('timestampText');
-  if (timestampText) timestampText.textContent = '구글 시트 데이터 불러오는 중...';
+  updateDataTimestamp('loading');
 
   try {
     const response = await fetch('/.netlify/functions/getData');
@@ -492,8 +471,10 @@ async function fetchDashboardData() {
         processRefundAdjustmentData(refundData);
       }
 
-      const nowStr = getCurrentFormattedTimestamp();
-      updateDataTimestamp(`구글시트 실시간 연동 (${nowStr})`);
+      // 신청서별허가현황 A3:C3 출력일자 표시 ('데이터 추출일 : YYYY-MM-DD' 포맷)
+      const printDateStr = extractSheetPrintDate(approvalData);
+      const displayTime = printDateStr || getCurrentFormattedTimestamp();
+      updateDataTimestamp(displayTime);
 
       populateDropdownOptions();
       updateDefaultDateRange();
@@ -501,11 +482,11 @@ async function fetchDashboardData() {
 
     } else {
       console.error("서버 응답 오류:", result.message);
-      if (timestampText) timestampText.textContent = '구글시트 연동 실패';
+      updateDataTimestamp('구글시트 연동 실패', true);
     }
   } catch (error) {
     console.error("서버에서 데이터를 가져오지 못했습니다:", error);
-    if (timestampText) timestampText.textContent = '구글시트 연동 에러';
+    updateDataTimestamp('구글시트 연동 에러', true);
   }
 }
 
@@ -955,12 +936,6 @@ document.addEventListener('DOMContentLoaded', () => {
 
   const btnLogout = document.getElementById('btnLogout');
   if (btnLogout) btnLogout.addEventListener('click', handleLogout);
-
-  const btnExportSharedJson = document.getElementById('btnExportSharedJson');
-  if (btnExportSharedJson) btnExportSharedJson.addEventListener('click', exportSharedWebJson);
-
-  const btnRefreshData = document.getElementById('btnRefreshData');
-  if (btnRefreshData) btnRefreshData.addEventListener('click', fetchDashboardData);
 
   rawData = [];
   filteredData = [];
@@ -1412,11 +1387,6 @@ function updateMultiSelectLabel() {
 }
 
 function initEventListeners() {
-  const btnRefreshData = document.getElementById('btnRefreshData');
-  if (btnRefreshData) {
-    btnRefreshData.addEventListener('click', fetchDashboardData);
-  }
-
   document.getElementById('selectOrgCategory').addEventListener('change', () => {
     populateDropdownOptions();
     currentPage = 1;
@@ -1900,7 +1870,7 @@ function renderTableData() {
       <tr>
         <th style="width: 45px;">No<div class="resizer"></div></th>
         <th style="width: 170px;">허가번호<div class="resizer"></div></th>
-        <th style="width: 150px;">처리상태<div class="resizer"></div></th>
+        <th style="width: 150px;">원본 처리상태<div class="resizer"></div></th>
         <th style="width: 130px;">복구주체<div class="resizer"></div></th>
         <th style="width: 130px; background:#fff7ed;">허가면적 (㎡)<div class="resizer"></div></th>
         <th style="width: 130px; background:#f0fdf4;">준공면적 (㎡)<div class="resizer"></div></th>
@@ -1919,6 +1889,8 @@ function renderTableData() {
             <p>선택하신 필터 조건에 부합하는 [${subName}] 정산 내역이 없습니다.</p>
           </td>
         </tr>`;
+      const dataTable = document.getElementById('dataTable');
+      if (dataTable) dataTable.style.height = '100%';
       renderPagination(0);
       initTableColumnResizer();
       return;
@@ -1941,20 +1913,26 @@ function renderTableData() {
         ? 'color:#c2410c; font-weight:800; background:#fff7ed; border:1px solid #ffedd5; padding:3px 10px; border-radius:6px;'
         : 'color:#7c3aed; font-weight:800; background:#faf5ff; border:1px solid #e9d5ff; padding:3px 10px; border-radius:6px;';
 
-      let currentStatus = item.status || '준공검토';
+      let currentStatus = '준공검토';
       if (rawData.length > 0) {
         const cleanP = cleanForSearch(item.permitNo);
         const match = rawData.find(r => cleanForSearch(r.permitNo) === cleanP);
         if (match && match.rawStatus) {
           currentStatus = match.rawStatus;
+        } else if (item.status) {
+          currentStatus = item.status;
         }
+      } else if (item.status) {
+        currentStatus = item.status;
       }
+
+      const rawStatusTag = `<span style="font-size:0.78rem; color:#1e293b; font-weight:700; background:#f1f5f9; border:1px solid #cbd5e1; padding:2px 8px; border-radius:4px; display:inline-block;">${currentStatus}</span>`;
 
       return `
         <tr>
           <td>${startIndex + index + 1}</td>
           <td><code style="color:#2563eb; font-weight:700; font-size:0.88rem;">${item.permitNo || '-'}</code></td>
-          <td><span style="font-size:0.8rem; color:#334155; font-weight:600;">${currentStatus}</span></td>
+          <td>${rawStatusTag}</td>
           <td><span style="color:#475569; font-weight:600;">${item.restoreEntity || '-'}</span></td>
           <td style="font-weight:700; color:#c2410c; background:#fff7ed;">${(item.permitArea || 0).toLocaleString()} ㎡</td>
           <td style="font-weight:700; color:#059669; background:#f0fdf4;">${(item.compArea || 0).toLocaleString()} ㎡</td>
@@ -1962,6 +1940,11 @@ function renderTableData() {
         </tr>
       `;
     }).join('');
+
+    const dataTable = document.getElementById('dataTable');
+    if (dataTable) {
+      dataTable.style.height = pageData.length >= 10 ? '100%' : 'auto';
+    }
 
     renderPagination(totalCount);
     initTableColumnResizer();
@@ -1994,6 +1977,8 @@ function renderTableData() {
             <p>선택하신 필터 조건에 부합하는 납부 관리 [${subName}] 내역이 없습니다.</p>
           </td>
         </tr>`;
+      const dataTable = document.getElementById('dataTable');
+      if (dataTable) dataTable.style.height = '100%';
       renderPagination(0);
       initTableColumnResizer();
       return;
@@ -2028,6 +2013,11 @@ function renderTableData() {
       `;
     }).join('');
 
+    const dataTable = document.getElementById('dataTable');
+    if (dataTable) {
+      dataTable.style.height = pageData.length >= 10 ? '100%' : 'auto';
+    }
+
     renderPagination(totalCount);
     initTableColumnResizer();
 
@@ -2060,16 +2050,13 @@ function renderTableData() {
               <h3>구글 시트 데이터를 가져오는 중이거나 데이터가 없습니다</h3>
               <p style="font-size: 0.85rem; color: #475569; max-width: 580px; line-height: 1.5;">
                 Netlify 서버리스 함수를 통해 구글 시트의 최신 데이터를 자동으로 반영합니다.<br>
-                데이터가 나타나지 않을 경우 상단의 <strong>[구글시트 데이터 새로고침]</strong> 버튼을 클릭해주세요.
+                데이터가 나타나지 않을 경우 잠시 후 <strong>페이지를 새로고침(F5)</strong> 해주세요.
               </p>
-              <div class="empty-guide-actions" style="margin-top: 10px;">
-                <button onclick="fetchDashboardData()" class="btn btn-primary">
-                  <i data-lucide="refresh-cw"></i> 데이터 다시 불러오기
-                </button>
-              </div>
             </div>
           </td>
         </tr>`;
+      const dataTable = document.getElementById('dataTable');
+      if (dataTable) dataTable.style.height = '100%';
       lucide.createIcons();
       renderPagination(0);
       initTableColumnResizer();
@@ -2084,6 +2071,8 @@ function renderTableData() {
             <p>선택하신 조건과 일치하는 인허가 데이터가 없습니다.</p>
           </td>
         </tr>`;
+      const dataTable = document.getElementById('dataTable');
+      if (dataTable) dataTable.style.height = '100%';
       renderPagination(0);
       initTableColumnResizer();
       return;
@@ -2116,6 +2105,11 @@ function renderTableData() {
         </tr>
       `;
     }).join('');
+
+    const dataTable = document.getElementById('dataTable');
+    if (dataTable) {
+      dataTable.style.height = pageData.length >= 10 ? '100%' : 'auto';
+    }
 
     renderPagination(totalCount);
     initTableColumnResizer();

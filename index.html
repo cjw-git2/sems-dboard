@@ -3,7 +3,7 @@
 <head>
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
-  <title>SEMS - 서울시 도로굴착복구 관리 Dashboard Beta 2.1</title>
+  <title>SEMS - 서울시 도로굴착복구 관리 Dashboard Ver 1.0</title>
   
   <!-- Pretendard & Inter Web Font -->
   <link rel="stylesheet" as="style" crossorigin href="https://cdn.jsdelivr.net/gh/orioncactus/pretendard@v1.3.9/dist/web/static/pretendard.min.css" />
@@ -82,7 +82,7 @@
             <div style="display: flex; align-items: center; gap: 8px; flex-wrap: nowrap;">
               <h1 style="font-size: 1.95rem; font-weight: 900; color: #0f172a; display: flex; align-items: center; gap: 6px; letter-spacing: -0.8px; line-height: 1; white-space: nowrap; margin: 0;">
                 SEMS
-                <span class="version-badge" style="font-size: 0.76rem; padding: 2px 8px; border-radius: 10px; background: linear-gradient(135deg, #2563eb, #7c3aed);">Beta 2.2</span>
+                <span class="version-badge" style="font-size: 0.76rem; padding: 2px 8px; border-radius: 10px; background: linear-gradient(135deg, #2563eb, #7c3aed);">Ver 1.0</span>
               </h1>
               <span style="font-size: 0.78rem; color: #475569; font-weight: 600; background: #f1f5f9; padding: 3px 10px; border-radius: 6px; border: 1px solid #cbd5e1; white-space: nowrap;">서울시 도로굴착복구 관리 Dashboard</span>
             </div>
@@ -95,16 +95,11 @@
 
       <!-- Perfectly Aligned Header Action Buttons -->
       <div class="header-actions">
-        <!-- 1. Refresh Google Sheet Data Button Wrapper with Sub Timestamp Label -->
-        <div class="upload-btn-column">
-          <button id="btnRefreshData" class="btn btn-primary btn-header" style="width: 100%; justify-content: center;" title="구글 시트에서 최신 데이터 가져오기">
-            <i data-lucide="refresh-cw" style="width: 14px; height: 14px;"></i>
-            <span>구글시트 데이터 새로고침</span>
-          </button>
-          <!-- Perfectly Flush Right Sub Timestamp Badge -->
-          <span id="dataTimestampBadge" class="timestamp-sub-badge">
-            <i data-lucide="clock" style="width:11px; height:11px;"></i>
-            <span id="timestampText">구글시트 연동 대기중...</span>
+        <!-- Sub Timestamp Badge -->
+        <div id="dataTimestampBadge" class="timestamp-sub-badge" title="구글 시트 데이터 추출일">
+          <i data-lucide="calendar" style="width:14px; height:14px; color:#2563eb; flex-shrink:0;"></i>
+          <span id="timestampText">
+            <span style="color:#64748b; font-weight:500;">구글 시트 연동 대기중...</span>
           </span>
         </div>
 
@@ -114,13 +109,7 @@
           <span>도로굴착복구시스템 연결</span>
         </a>
 
-        <!-- 3. Web Shared Data Sync Export Button -->
-        <button id="btnExportSharedJson" class="btn btn-secondary btn-header" style="border-color: #a7f3d0; background: #ecfdf5; color: #047857;" title="웹호스팅 서버 업로드용 통합 데이터 내보내기">
-          <i data-lucide="cloud-upload" style="color:#059669; width: 14px; height: 14px;"></i>
-          <span>웹 데이터 내보내기</span>
-        </button>
-
-        <!-- 4. Logout Button -->
+        <!-- 3. Logout Button -->
         <button id="btnLogout" class="btn btn-secondary btn-header" style="color: #dc2626; border-color: #fecaca; background: #fef2f2;" title="대시보드 로그아웃">
           <i data-lucide="log-out" style="width: 14px; height: 14px;"></i>
           <span>로그아웃</span>
@@ -137,6 +126,10 @@
         </div>
         <div style="display: flex; align-items: center; gap: 8px; flex-wrap: wrap;">
           <span class="filter-badge" id="activeFilterBadge">전체 데이터 조회중</span>
+          <button id="btnManageManualBP" class="btn btn-secondary" style="padding: 5px 10px; font-size: 0.78rem; border-color: #93c5fd; background: #eff6ff; color: #1e40af;" title="예외 BP사 수동 지정 관리">
+            <i data-lucide="user-cog" style="color: #2563eb; width: 13px; height: 13px;"></i>
+            <span>예외BP 관리</span>
+          </button>
           <button id="btnResetFilter" class="btn btn-secondary" style="padding: 5px 10px; font-size: 0.78rem;">
             <i data-lucide="rotate-ccw"></i>
             <span>필터 초기화</span>
@@ -372,71 +365,6 @@
       </section>
 
     </main>
-
-    <!-- 4. Footer Area -->
-    <footer class="footer-dual-container" style="display: grid; grid-template-columns: 1.2fr 1fr 1fr; gap: 10px; margin-top: 10px;">
-      
-      <!-- Panel 1 -->
-      <div class="glass-panel footer-panel" style="padding: 12px 14px; display: flex; justify-content: space-between; align-items: center; gap: 8px;">
-        <div style="display: flex; align-items: center; gap: 8px;">
-          <div style="width: 32px; height: 32px; background: #eff6ff; border: 1px solid #bfdbfe; border-radius: 8px; display: flex; align-items: center; justify-content: center; flex-shrink: 0;">
-            <i data-lucide="file-cog" style="color: #2563eb; width: 16px; height: 16px;"></i>
-          </div>
-          <div>
-            <h4 style="font-size: 0.82rem; font-weight: 800; color: #0f172a; display: flex; align-items: center; gap: 4px;">
-              수동 맵핑 DB
-              <span id="contractorDbBadge" style="font-size: 0.65rem; font-weight: 600; color: #059669; background: #ecfdf5; border: 1px solid #a7f3d0; padding: 1px 6px; border-radius: 8px;">0건</span>
-            </h4>
-            <p style="font-size: 0.7rem; color: #64748b; margin-top: 2px;">BP사, 도급사, 공사매체/구분, TANGO공사코드/비고를 수동 적용합니다.</p>
-          </div>
-        </div>
-        <div style="display: flex; align-items: center; gap: 4px; flex-shrink: 0;">
-          <button id="btnManageManualBP" class="btn btn-secondary" style="font-size: 0.72rem; padding: 4px 7px; border-color: #93c5fd; background: #eff6ff; color: #1e40af;" title="예외 BP사 수동 지정 관리">
-            <i data-lucide="user-cog" style="color: #2563eb; width: 13px; height: 13px;"></i> 예외BP
-          </button>
-          <button id="btnDownloadContractorTemplate" class="btn btn-secondary" style="font-size: 0.72rem; padding: 4px 7px;" title="현재 연동 DB 전체 엑셀 출력 다운로드">양식 다운로드</button>
-        </div>
-      </div>
-
-      <!-- Panel 2 -->
-      <div class="glass-panel footer-panel" style="padding: 12px 14px; display: flex; justify-content: space-between; align-items: center; gap: 8px;">
-        <div style="display: flex; align-items: center; gap: 8px;">
-          <div style="width: 32px; height: 32px; background: #f3e8ff; border: 1px solid #d8b4fe; border-radius: 8px; display: flex; align-items: center; justify-content: center; flex-shrink: 0;">
-            <i data-lucide="receipt" style="color: #7c3aed; width: 16px; height: 16px;"></i>
-          </div>
-          <div>
-            <h4 style="font-size: 0.82rem; font-weight: 800; color: #0f172a; display: flex; align-items: center; gap: 4px;">
-              고지서 / 납부현황 DB
-              <span id="paymentDbBadge" style="font-size: 0.65rem; font-weight: 600; color: #7c3aed; background: #faf5ff; border: 1px solid #e9d5ff; padding: 1px 6px; border-radius: 8px;">0건</span>
-            </h4>
-            <p style="font-size: 0.7rem; color: #64748b; margin-top: 2px;">구글시트 '납부현황목록' 데이터를 반영합니다.</p>
-          </div>
-        </div>
-        <div style="display: flex; align-items: center; gap: 4px; flex-shrink: 0;">
-          <button id="btnDownloadPaymentTemplate" class="btn btn-secondary" style="font-size: 0.72rem; padding: 4px 7px;" title="현재 연동 DB 전체 엑셀 출력 다운로드">양식 다운로드</button>
-        </div>
-      </div>
-
-      <!-- Panel 3 -->
-      <div class="glass-panel footer-panel" style="padding: 12px 14px; display: flex; justify-content: space-between; align-items: center; gap: 8px;">
-        <div style="display: flex; align-items: center; gap: 8px;">
-          <div style="width: 32px; height: 32px; background: #fff7ed; border: 1px solid #fed7aa; border-radius: 8px; display: flex; align-items: center; justify-content: center; flex-shrink: 0;">
-            <i data-lucide="scale" style="color: #c2410c; width: 16px; height: 16px;"></i>
-          </div>
-          <div>
-            <h4 style="font-size: 0.82rem; font-weight: 800; color: #0f172a; display: flex; align-items: center; gap: 4px;">
-              환수 / 사후납 대상 DB
-              <span id="refundDbBadge" style="font-size: 0.65rem; font-weight: 600; color: #c2410c; background: #fff7ed; border: 1px solid #ffedd5; padding: 1px 6px; border-radius: 8px;">0건</span>
-            </h4>
-            <p style="font-size: 0.7rem; color: #64748b; margin-top: 2px;">구글시트 '환수사후납정리' 내역을 반영합니다.</p>
-          </div>
-        </div>
-        <div style="display: flex; align-items: center; gap: 4px; flex-shrink: 0;">
-          <button id="btnDownloadRefundTemplate" class="btn btn-secondary" style="font-size: 0.72rem; padding: 4px 7px;" title="현재 연동 DB 전체 엑셀 출력 다운로드">양식 다운로드</button>
-        </div>
-      </div>
-
-    </footer>
 
   </div>
 
