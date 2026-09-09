@@ -195,14 +195,11 @@ function savePaymentDBMap(mapObj) {
 function updatePaymentDbBadge() {
   const badge = document.getElementById('paymentDbBadge');
   if (!badge) return;
-  const map = getPaymentDBMap();
-  const count = Object.keys(map).length;
+  const count = paymentData.length;
   badge.textContent = `${count.toLocaleString()}건`;
 }
 
 function loadPaymentDataFromDB() {
-  const dbMap = getPaymentDBMap();
-  paymentData = Object.values(dbMap);
   updatePaymentDbBadge();
 }
 
@@ -228,47 +225,11 @@ function saveRefundPostpayDBMap(mapObj) {
 function updateRefundDbBadge() {
   const badge = document.getElementById('refundDbBadge');
   if (!badge) return;
-  const map = getRefundPostpayDBMap();
-  const count = Object.keys(map).length;
+  const count = refundPostpayData.length;
   badge.textContent = `${count.toLocaleString()}건`;
 }
 
 function loadRefundPostpayDataFromDB() {
-  const dbMap = getRefundPostpayDBMap();
-  
-  const cleanedMap = {};
-  for (const key in dbMap) {
-    const item = dbMap[key];
-    if (!item || !item.permitNo) continue;
-    
-    const pNo = String(item.permitNo).trim();
-    const pArea = parseAreaNumber(item.permitArea);
-    const cArea = parseAreaNumber(item.compArea);
-    const diff = Math.round((pArea - cArea) * 100) / 100; // (허가면적 - 준공면적)
-
-    // Lookup rawStatus from rawData if available
-    let resolvedStatus = item.status || '준공검토';
-    if (rawData.length > 0) {
-      const cleanP = cleanForSearch(pNo);
-      const match = rawData.find(r => cleanForSearch(r.permitNo) === cleanP);
-      if (match && match.rawStatus) {
-        resolvedStatus = match.rawStatus;
-      }
-    }
-
-    cleanedMap[pNo] = {
-      permitNo: pNo,
-      status: resolvedStatus,
-      restoreEntity: item.restoreEntity || '원인자복구',
-      permitArea: pArea,
-      compArea: cArea,
-      areaDiff: diff,
-      type: pArea > cArea ? '환수대상' : '사후납대상', // Auto-classify based on area comparison!
-      lastUpdated: item.lastUpdated || getCurrentFormattedTimestamp()
-    };
-  }
-
-  refundPostpayData = Object.values(cleanedMap);
   updateRefundDbBadge();
 }
 
@@ -683,7 +644,7 @@ function processPaymentListData(rawRows) {
   const payDateColIdx = findCol(['납부일'], 8);
   const statusColIdx = findCol(['상태', '완납상태'], 10);
 
-  const dbMap = getPaymentDBMap();
+  const dbMap = {};
 
   for (let r = headerRowIndex + 1; r < rawRows.length; r++) {
     const row = rawRows[r];
@@ -719,8 +680,8 @@ function processPaymentListData(rawRows) {
     };
   }
 
-  savePaymentDBMap(dbMap);
-  loadPaymentDataFromDB();
+  paymentData = Object.values(dbMap);
+  updatePaymentDbBadge();
 }
 
 function processRefundAdjustmentData(rawRows) {
@@ -793,7 +754,7 @@ function processRefundAdjustmentData(rawRows) {
     groupedPermits[permitNo].rowCount++;
   }
 
-  const existingDbMap = getRefundPostpayDBMap();
+  const existingDbMap = {};
 
   for (const pNo in groupedPermits) {
     const pObj = groupedPermits[pNo];
@@ -832,8 +793,8 @@ function processRefundAdjustmentData(rawRows) {
     };
   }
 
-  saveRefundPostpayDBMap(existingDbMap);
-  loadRefundPostpayDataFromDB();
+  refundPostpayData = Object.values(existingDbMap);
+  updateRefundDbBadge();
 }
 
 function formatExcelDate(val) {
@@ -945,8 +906,14 @@ document.addEventListener('DOMContentLoaded', () => {
   filteredRefundPostpayData = [];
   selectedDistricts = [];
   
-  loadPaymentDataFromDB();
-  loadRefundPostpayDataFromDB();
+  // Clear any legacy cached DB from localStorage
+  try {
+    localStorage.removeItem(PAYMENT_DB_STORAGE_KEY);
+    localStorage.removeItem(REFUND_POSTPAY_DB_STORAGE_KEY);
+  } catch (e) {}
+
+  updatePaymentDbBadge();
+  updateRefundDbBadge();
   updateDataTimestamp('구글시트 데이터 로드 중...');
   updateContractorDbBadge();
   initEventListeners();
@@ -1056,8 +1023,7 @@ function setupPaymentDataEvents() {
 }
 
 function downloadPaymentTemplate() {
-  const dbMap = getPaymentDBMap();
-  const items = Object.values(dbMap);
+  const items = paymentData;
 
   let exportRows = [];
 
@@ -1076,10 +1042,11 @@ function downloadPaymentTemplate() {
       '상태': item.status || ''
     }));
   } else {
-    exportRows = [
-      { '허가신청번호': '통신-260513-0097', '허가번호': '동대문구-2026-통신-0016', '고지종류': '시비-점용료', '부과구분': '선납분', '공사명': '서울동대문구 고신자로 동신관로 지중화공사(시도_보도구간)', '금액': '62,040원', '부과일': '2026-07-30', '납기내': '2026-08-30', '납부일': '-', '영수증확인': '영수증확인', '상태': '납부확인요청' },
-      { '허가신청번호': '통신-260421-0054', '허가번호': '동대문구-2026-통신-0010', '고지종류': '시비-점용료', '부과구분': '선납분', '공사명': '25년 서울 동대문구 용두동 원 앞 통신관로공사', '금액': '1,875,720원', '부과일': '2026-07-06', '납기내': '2026-08-06', '납부일': '2026-07-14', '영수증확인': '영수증확인', '상태': '완납' }
-    ];
+    // No internal sample data - emit only header row to keep sheet structure
+    exportRows = [{
+      '허가신청번호': '', '허가번호': '', '고지종류': '', '부과구분': '',
+      '공사명': '', '금액': '', '부과일': '', '납기내': '', '납부일': '', '영수증확인': '', '상태': ''
+    }];
   }
 
   const timestampStr = getFileTimestampString();
@@ -1097,8 +1064,7 @@ function setupRefundPostpayEvents() {
 }
 
 function downloadRefundPostpayTemplate() {
-  const dbMap = getRefundPostpayDBMap();
-  const items = Object.values(dbMap);
+  const items = refundPostpayData;
 
   let exportRows = [];
 
@@ -1110,16 +1076,8 @@ function downloadRefundPostpayTemplate() {
       '준공면적 (㎡)': item.compArea || 0
     }));
   } else {
-    exportRows = [
-      {
-        '허가번호': '중구-2022-통신-0010', '복구주체': '서부도로사업소',
-        '허가면적 (㎡)': 199.2, '준공면적 (㎡)': 396.4
-      },
-      {
-        '허가번호': '은평구-2025-통신-0033', '복구주체': '원인자복구',
-        '허가면적 (㎡)': 301.2, '준공면적 (㎡)': 168
-      }
-    ];
+    // No internal sample data - emit only header row to keep sheet structure
+    exportRows = [{ '허가번호': '', '복구주체': '', '허가면적 (㎡)': '', '준공면적 (㎡)': '' }];
   }
 
   const timestampStr = getFileTimestampString();
