@@ -3,7 +3,7 @@
 <head>
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
-  <title>SEMS - 서울시 도로굴착복구 관리 Dashboard Ver 1.0</title>
+  <title>SEMS - 서울 도로굴착복구관리 대시보드 Ver 1.1</title>
   
   <!-- Pretendard & Inter Web Font -->
   <link rel="stylesheet" as="style" crossorigin href="https://cdn.jsdelivr.net/gh/orioncactus/pretendard@v1.3.9/dist/web/static/pretendard.min.css" />
@@ -21,6 +21,34 @@
   <script src="https://cdn.jsdelivr.net/npm/canvas-confetti@1.6.0/dist/confetti.browser.min.js"></script>
 
   <link rel="stylesheet" href="styles.css">
+  <script>
+    function openVersionModal(e) {
+      if (e) {
+        if (e.stopPropagation) e.stopPropagation();
+        if (e.preventDefault) e.preventDefault();
+      }
+      var modal = document.getElementById('versionModalOverlay');
+      if (modal) {
+        modal.style.display = 'flex';
+        modal.style.zIndex = '99999';
+        if (window.lucide && window.lucide.createIcons) {
+          try { window.lucide.createIcons(); } catch(err) {}
+        }
+      }
+      return false;
+    }
+    function closeVersionModal(e) {
+      if (e) {
+        if (e.stopPropagation) e.stopPropagation();
+        if (e.preventDefault) e.preventDefault();
+      }
+      var modal = document.getElementById('versionModalOverlay');
+      if (modal) {
+        modal.style.display = 'none';
+      }
+      return false;
+    }
+  </script>
 </head>
 <body>
   <!-- Ambient background glow elements -->
@@ -82,9 +110,12 @@
             <div style="display: flex; align-items: center; gap: 8px; flex-wrap: nowrap;">
               <h1 style="font-size: 1.95rem; font-weight: 900; color: #0f172a; display: flex; align-items: center; gap: 6px; letter-spacing: -0.8px; line-height: 1; white-space: nowrap; margin: 0;">
                 SEMS
-                <span class="version-badge" style="font-size: 0.76rem; padding: 2px 8px; border-radius: 10px; background: linear-gradient(135deg, #2563eb, #7c3aed);">Ver 1.0</span>
+                <span id="btnVersionBadge" onclick="openVersionModal(event)" class="version-badge" style="font-size: 0.76rem; padding: 2px 9px; border-radius: 10px; background: linear-gradient(135deg, #2563eb, #7c3aed); cursor: pointer; display: inline-flex; align-items: center; gap: 4px; box-shadow: 0 2px 5px rgba(37,99,235,0.25); transition: all 0.2s ease; position: relative; z-index: 100; pointer-events: auto; user-select: none;" title="Ver 1.1 업데이트 변경 내역 보기">
+                  Ver 1.1
+                  <i data-lucide="info" style="width: 12px; height: 12px; opacity: 0.9; pointer-events: none;"></i>
+                </span>
               </h1>
-              <span style="font-size: 0.78rem; color: #475569; font-weight: 600; background: #f1f5f9; padding: 3px 10px; border-radius: 6px; border: 1px solid #cbd5e1; white-space: nowrap;">서울시 도로굴착복구 관리 Dashboard</span>
+              <span style="font-size: 0.78rem; color: #475569; font-weight: 600; background: #f1f5f9; padding: 3px 10px; border-radius: 6px; border: 1px solid #cbd5e1; white-space: nowrap;">서울 도로굴착복구관리 대시보드</span>
             </div>
             <div style="font-size: 0.84rem; font-weight: 600; color: #475569; letter-spacing: -0.2px; line-height: 1;">
               (Seoul Excavation Management System)
@@ -96,10 +127,10 @@
       <!-- Perfectly Aligned Header Action Buttons -->
       <div class="header-actions">
         <!-- Sub Timestamp Badge -->
-        <div id="dataTimestampBadge" class="timestamp-sub-badge" title="구글 시트 데이터 추출일">
-          <i data-lucide="calendar" style="width:14px; height:14px; color:#2563eb; flex-shrink:0;"></i>
+        <div id="dataTimestampBadge" class="timestamp-sub-badge" title="도로굴착복구시스템 DB 갱신 상태">
+          <i data-lucide="database" style="width:14px; height:14px; color:#2563eb; flex-shrink:0;"></i>
           <span id="timestampText">
-            <span style="color:#64748b; font-weight:500;">구글 시트 연동 대기중...</span>
+            <span style="color:#2563eb; font-weight:700;">DB갱신</span>
           </span>
         </div>
 
@@ -428,6 +459,39 @@
             <tbody id="manualBpTableBody"></tbody>
           </table>
         </div>
+      </div>
+    </div>
+  </div>
+
+  <!-- Ver 1.1 Update Release Notes Modal -->
+  <div id="versionModalOverlay" class="modal-overlay" onclick="if(event.target===this) closeVersionModal(event)" style="display: none; z-index: 99999;">
+    <div class="modal-content" style="max-width: 460px; border-radius: 16px; padding: 22px; background: #ffffff; box-shadow: 0 20px 25px -5px rgba(15, 23, 42, 0.15), 0 10px 10px -5px rgba(15, 23, 42, 0.08); border: 1px solid #e2e8f0;">
+      <div style="display: flex; justify-content: space-between; align-items: center; padding-bottom: 12px; border-bottom: 1px solid #f1f5f9; margin-bottom: 16px;">
+        <div style="display: flex; align-items: center; gap: 8px;">
+          <span style="font-size: 0.76rem; font-weight: 800; color: #ffffff; background: linear-gradient(135deg, #2563eb, #7c3aed); padding: 3px 10px; border-radius: 10px;">Ver 1.1</span>
+          <h3 style="font-size: 1.05rem; font-weight: 800; color: #0f172a; margin: 0; letter-spacing: -0.3px;">업데이트 변경 상세내용</h3>
+        </div>
+        <button id="btnCloseVersionModal" onclick="closeVersionModal()" style="background: none; border: none; font-size: 1.25rem; color: #94a3b8; cursor: pointer; padding: 2px 6px; border-radius: 6px; line-height: 1;">&times;</button>
+      </div>
+      
+      <div style="background: #f8fafc; border: 1px solid #e2e8f0; border-radius: 10px; padding: 16px 18px; margin-bottom: 18px;">
+        <div style="font-weight: 800; color: #1e293b; font-size: 0.9rem; margin-bottom: 10px; display: flex; align-items: center; justify-content: space-between;">
+          <span style="display: inline-flex; align-items: center; gap: 6px; color: #1e40af;">
+            <i data-lucide="sparkles" style="width: 15px; height: 15px; color: #2563eb;"></i>
+            Ver 1.1 업데이트 반영내용
+          </span>
+          <span style="font-size: 0.78rem; font-weight: 600; color: #64748b; background: #ffffff; padding: 2px 8px; border-radius: 6px; border: 1px solid #cbd5e1;">26.9.18</span>
+        </div>
+        <div style="padding-left: 6px;">
+          <div style="display: flex; align-items: flex-start; gap: 8px; font-size: 0.86rem; color: #334155; font-weight: 600; line-height: 1.5;">
+            <span style="color: #2563eb; font-weight: 800;">•</span>
+            <span>환수대상, 사후납대상의 일부 목록이 누락되는 버그수정</span>
+          </div>
+        </div>
+      </div>
+
+      <div style="display: flex; justify-content: flex-end;">
+        <button id="btnConfirmVersionModal" onclick="closeVersionModal()" class="btn btn-primary" style="padding: 6px 18px; font-size: 0.82rem; border-radius: 8px; font-weight: 700;">확인</button>
       </div>
     </div>
   </div>

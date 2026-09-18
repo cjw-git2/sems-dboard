@@ -19,7 +19,7 @@ exports.handler = async function(event, context) {
         '신청서별허가현황!A1:Z', 
         '납부현황목록!A1:Z', 
         '수동맵핑!A1:Z', 
-        '환수사후납정리!A1:Z'
+        '환수_사후납정리!A1:Z'
       ], 
     });
 

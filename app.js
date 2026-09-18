@@ -79,9 +79,29 @@ function parseAreaNumber(val) {
   return isNaN(num) ? 0 : num;
 }
 
+function formatAreaNumber(num, isDiff = false) {
+  if (num === null || num === undefined || isNaN(num)) return '0 ㎡';
+  const val = Math.round(num * 10) / 10;
+  const isInt = val % 1 === 0;
+  const formattedStr = isInt 
+    ? Math.abs(val).toLocaleString() 
+    : Math.abs(val).toLocaleString(undefined, { minimumFractionDigits: 1, maximumFractionDigits: 1 });
+  
+  if (isDiff) {
+    if (val > 0) return `+${formattedStr} ㎡`;
+    if (val < 0) return `-${formattedStr} ㎡`;
+    return `0 ㎡`;
+  }
+  return `${val < 0 ? '-' : ''}${formattedStr} ㎡`;
+}
+
 function cleanForSearch(str) {
   if (str === null || str === undefined) return '';
-  return String(str).toLowerCase().replace(/[\s\-\_\.\,\/\(\)\[\]\–\—\－]/g, '').trim();
+  return String(str)
+    .toLowerCase()
+    .replace(/\(변경\)|\(연장\)|\(재고지\)|\(원적\)/gi, '')
+    .replace(/[\s\-\_\.\,\/\(\)\[\]\–\—\－]/g, '')
+    .trim();
 }
 
 /* Authentication Engine */
@@ -195,11 +215,14 @@ function savePaymentDBMap(mapObj) {
 function updatePaymentDbBadge() {
   const badge = document.getElementById('paymentDbBadge');
   if (!badge) return;
-  const count = paymentData.length;
+  const map = getPaymentDBMap();
+  const count = Object.keys(map).length;
   badge.textContent = `${count.toLocaleString()}건`;
 }
 
 function loadPaymentDataFromDB() {
+  const dbMap = getPaymentDBMap();
+  paymentData = Object.values(dbMap);
   updatePaymentDbBadge();
 }
 
@@ -225,11 +248,50 @@ function saveRefundPostpayDBMap(mapObj) {
 function updateRefundDbBadge() {
   const badge = document.getElementById('refundDbBadge');
   if (!badge) return;
-  const count = refundPostpayData.length;
+  const map = getRefundPostpayDBMap();
+  const count = Object.keys(map).length;
   badge.textContent = `${count.toLocaleString()}건`;
 }
 
 function loadRefundPostpayDataFromDB() {
+  const dbMap = getRefundPostpayDBMap();
+  
+  const cleanedMap = {};
+  for (const key in dbMap) {
+    const item = dbMap[key];
+    if (!item || !item.permitNo) continue;
+    
+    const pNo = String(item.permitNo).trim();
+    const pArea = parseAreaNumber(item.permitArea);
+    const cArea = parseAreaNumber(item.compArea);
+    const diff = Math.round((pArea - cArea) * 100) / 100; // (허가면적 - 준공면적)
+
+    let regionVal = item.region || (pNo.includes('-') ? pNo.split('-')[0] : '');
+    let resolvedStatus = item.status || '준공검토';
+
+    if (rawData.length > 0) {
+      const cleanP = cleanForSearch(pNo);
+      const match = rawData.find(r => cleanForSearch(r.permitNo) === cleanP);
+      if (match) {
+        if (match.rawStatus) resolvedStatus = match.rawStatus;
+        if (match.region) regionVal = match.region;
+      }
+    }
+
+    cleanedMap[pNo] = {
+      permitNo: pNo,
+      region: regionVal,
+      status: resolvedStatus,
+      restoreEntity: item.restoreEntity || '원인자복구',
+      permitArea: pArea,
+      compArea: cArea,
+      areaDiff: diff,
+      type: diff >= 1.0 ? '환수대상' : (diff <= -1.0 ? '사후납대상' : '일치'), // Auto-classify (1m2 미만 차이는 일치로 처리)
+      lastUpdated: item.lastUpdated || getCurrentFormattedTimestamp()
+    };
+  }
+
+  refundPostpayData = Object.values(cleanedMap);
   updateRefundDbBadge();
 }
 
@@ -327,75 +389,26 @@ function getCurrentFormattedTimestamp() {
 }
 
 /**
- * 구글시트 타임스탬프 뱃지 텍스트 및 디자인 업데이트
+ * Renamed to '최종 업로드'
  */
-function updateDataTimestamp(dateStr, isError = false) {
+function updateDataTimestamp(timestampStr) {
   const elem = document.getElementById('timestampText');
-  if (!elem) return;
-
-  if (isError) {
-    elem.innerHTML = `<span style="color:#dc2626; font-weight:700; font-size:0.75rem;">${dateStr}</span>`;
-    return;
+  if (elem) {
+    const text = timestampStr || 'DB갱신';
+    elem.innerHTML = `<span style="color:#2563eb; font-weight:700;">${text}</span>`;
   }
-
-  if (!dateStr || dateStr === 'loading') {
-    elem.innerHTML = `<span style="color:#64748b; font-weight:500; font-size:0.75rem;">구글 시트 연동 중...</span>`;
-    return;
-  }
-
-  elem.innerHTML = `
-    <span style="color:#334155; font-weight:600; font-size:0.75rem; margin-right:2px;">데이터 추출일 :</span>
-    <span style="color:#1d4ed8; font-weight:800; font-size:0.78rem; font-family:'Inter', -apple-system, sans-serif; background:#eff6ff; padding:2px 7px; border-radius:4px; border:1px solid #bfdbfe; display:inline-block;">${dateStr}</span>
-  `;
-}
-
-/**
- * 구글시트 '신청서별허가현황' sheet의 A3:C3 (3번째 행, 1~3번째 열) 출력일자 추출 및 정제
- */
-function extractSheetPrintDate(approvalData) {
-  if (!approvalData || approvalData.length === 0) return '';
-
-  let rawText = '';
-  // 1. A3:C3 (3번째 행, index 2) 확인
-  if (approvalData.length >= 3 && approvalData[2]) {
-    const a3c3Row = approvalData[2];
-    const cellValues = a3c3Row.slice(0, 3).map(v => String(v || '').trim()).filter(Boolean);
-    rawText = cellValues.join(' ');
-  }
-
-  // 2. Fallback: 상위 5개 행에서 '출력일' 키워드가 포함된 셀 탐색
-  if (!rawText) {
-    for (let r = 0; r < Math.min(approvalData.length, 5); r++) {
-      const row = approvalData[r];
-      if (!row) continue;
-      for (let c = 0; c < Math.min(row.length, 5); c++) {
-        const val = String(row[c] || '').trim();
-        if (val.includes('출력일')) {
-          rawText = val;
-          break;
-        }
-      }
-      if (rawText) break;
-    }
-  }
-
-  if (!rawText) return '';
-
-  // 3. '▣출력일 :', '출력일자 :', '출력일시 :' 등에서 순수 날짜/시간 텍스트만 정제
-  let cleaned = rawText
-    .replace(/[▣■□▶]/g, '')
-    .replace(/출력일자|출력일시|출력일/g, '')
-    .replace(/^[\s:]+/, '')
-    .trim();
-
-  return cleaned || rawText;
 }
 
 /**
  * Netlify Serverless Function (getData.js)을 불러와 구글 시트 데이터 반영
  */
 async function fetchDashboardData() {
-  updateDataTimestamp('loading');
+  const timestampText = document.getElementById('timestampText');
+  if (timestampText) timestampText.innerHTML = '<span style="color:#2563eb; font-weight:700;">DB갱신 중...</span>';
+
+  // 구글 시트 새로고침 시작 시 이전 세션의 로컬 DB 잔재 초기화
+  localStorage.removeItem(PAYMENT_DB_STORAGE_KEY);
+  localStorage.removeItem(REFUND_POSTPAY_DB_STORAGE_KEY);
 
   try {
     const response = await fetch('/.netlify/functions/getData');
@@ -432,10 +445,23 @@ async function fetchDashboardData() {
         processRefundAdjustmentData(refundData);
       }
 
-      // 신청서별허가현황 A3:C3 출력일자 표시 ('데이터 추출일 : YYYY-MM-DD' 포맷)
-      const printDateStr = extractSheetPrintDate(approvalData);
-      const displayTime = printDateStr || getCurrentFormattedTimestamp();
-      updateDataTimestamp(displayTime);
+      let dbExportDate = '';
+      for (let r = 0; r < Math.min(approvalData.length, 5); r++) {
+        const rowStr = (approvalData[r] || []).join(' ');
+        if (rowStr.includes('출력일')) {
+          const match = rowStr.match(/\d{4}[\-\.\/]\d{2}[\-\.\/]\d{2}/);
+          if (match) {
+            dbExportDate = match[0];
+          }
+          break;
+        }
+      }
+
+      if (dbExportDate) {
+        updateDataTimestamp(`${dbExportDate} DB갱신`);
+      } else {
+        updateDataTimestamp('DB갱신');
+      }
 
       populateDropdownOptions();
       updateDefaultDateRange();
@@ -443,11 +469,11 @@ async function fetchDashboardData() {
 
     } else {
       console.error("서버 응답 오류:", result.message);
-      updateDataTimestamp('구글시트 연동 실패', true);
+      if (timestampText) timestampText.innerHTML = '<span style="color:#dc2626; font-weight:700;">DB갱신 실패</span>';
     }
   } catch (error) {
     console.error("서버에서 데이터를 가져오지 못했습니다:", error);
-    updateDataTimestamp('구글시트 연동 에러', true);
+    if (timestampText) timestampText.innerHTML = '<span style="color:#dc2626; font-weight:700;">DB갱신 에러</span>';
   }
 }
 
@@ -680,8 +706,8 @@ function processPaymentListData(rawRows) {
     };
   }
 
-  paymentData = Object.values(dbMap);
-  updatePaymentDbBadge();
+  savePaymentDBMap(dbMap);
+  loadPaymentDataFromDB();
 }
 
 function processRefundAdjustmentData(rawRows) {
@@ -705,17 +731,18 @@ function processRefundAdjustmentData(rawRows) {
     return defIdx;
   };
 
-  const permitNoColIdx = findCol(['허가번호', '신청번호'], 0);
-  const restoreEntityColIdx = findCol(['복구주체', '주체'], 3);
+  const statusColIdx = findCol(['처리상태', '상태'], 0);
+  const permitNoColIdx = findCol(['허가번호', '신청번호'], 1);
+  const restoreEntityColIdx = findCol(['관리청', '복구주체', '주체'], 3);
 
-  let permitAreaColIdx = 8;
-  let compAreaColIdx = 14;
+  let permitAreaColIdx = 7;  // H열: 허가_면적(㎡)
+  let compAreaColIdx = 12;   // M열: 준공_면적(㎡)
 
   for (let i = 0; i < headerRow.length; i++) {
     const h = headerRow[i];
-    if (h.includes('허가면적') || (h.includes('면적') && !h.includes('준공') && !h.includes('차이'))) {
+    if (h.includes('허가_면적') || h.includes('허가면적') || (h.includes('면적') && h.includes('허가') && !h.includes('준공') && !h.includes('차이'))) {
       permitAreaColIdx = i;
-    } else if (h.includes('준공면적') || (h.includes('준공') && h.includes('면적'))) {
+    } else if (h.includes('준공_면적') || h.includes('준공면적') || (h.includes('면적') && h.includes('준공'))) {
       compAreaColIdx = i;
     }
   }
@@ -729,6 +756,7 @@ function processRefundAdjustmentData(rawRows) {
     const permitNo = String(row[permitNoColIdx] || '').trim();
     if (!permitNo || permitNo.includes('허가번호')) continue;
 
+    const statusVal = String(row[statusColIdx] || '').trim();
     const restoreEntity = String(row[restoreEntityColIdx] || '').trim();
     const permitAreaVal = row[permitAreaColIdx];
     const compAreaVal = row[compAreaColIdx];
@@ -739,6 +767,7 @@ function processRefundAdjustmentData(rawRows) {
     if (!groupedPermits[permitNo]) {
       groupedPermits[permitNo] = {
         permitNo: permitNo,
+        status: statusVal,
         restoreEntity: restoreEntity,
         totalPermitArea: 0,
         totalCompArea: 0,
@@ -748,6 +777,9 @@ function processRefundAdjustmentData(rawRows) {
 
     groupedPermits[permitNo].totalPermitArea += iArea;
     groupedPermits[permitNo].totalCompArea += oArea;
+    if (statusVal && (!groupedPermits[permitNo].status || groupedPermits[permitNo].status === '')) {
+      groupedPermits[permitNo].status = statusVal;
+    }
     if (restoreEntity && (!groupedPermits[permitNo].restoreEntity || groupedPermits[permitNo].restoreEntity === '')) {
       groupedPermits[permitNo].restoreEntity = restoreEntity;
     }
@@ -764,26 +796,31 @@ function processRefundAdjustmentData(rawRows) {
     const diff = Math.round((permitAreaSum - compAreaSum) * 100) / 100;
 
     let targetType = '일치';
-    if (permitAreaSum > compAreaSum) {
+    if (diff >= 1.0) {
       targetType = '환수대상';
-    } else if (permitAreaSum < compAreaSum) {
+    } else if (diff <= -1.0) {
       targetType = '사후납대상';
     } else {
-      continue;
+      continue; // 1㎡ 미만 면적 차이는 생략
     }
 
-    let resolvedStatus = '준공검토';
+    let resolvedStatus = pObj.status || '';
+    let regionVal = pNo.includes('-') ? pNo.split('-')[0] : '';
     if (rawData.length > 0) {
       const cleanP = cleanForSearch(pNo);
       const match = rawData.find(r => cleanForSearch(r.permitNo) === cleanP);
-      if (match && match.rawStatus) {
-        resolvedStatus = match.rawStatus;
+      if (match) {
+        if (!resolvedStatus && match.rawStatus) resolvedStatus = match.rawStatus;
+        if (match.region) regionVal = match.region;
       }
     }
+    if (!resolvedStatus) resolvedStatus = '준공검토';
 
     existingDbMap[pNo] = {
       permitNo: pNo,
+      region: regionVal,
       status: resolvedStatus,
+      rawStatus: resolvedStatus,
       restoreEntity: pObj.restoreEntity || '원인자복구',
       permitArea: permitAreaSum,
       compArea: compAreaSum,
@@ -793,8 +830,8 @@ function processRefundAdjustmentData(rawRows) {
     };
   }
 
-  refundPostpayData = Object.values(existingDbMap);
-  updateRefundDbBadge();
+  saveRefundPostpayDBMap(existingDbMap);
+  loadRefundPostpayDataFromDB();
 }
 
 function formatExcelDate(val) {
@@ -898,6 +935,9 @@ document.addEventListener('DOMContentLoaded', () => {
   const btnLogout = document.getElementById('btnLogout');
   if (btnLogout) btnLogout.addEventListener('click', handleLogout);
 
+  const btnRefreshData = document.getElementById('btnRefreshData');
+  if (btnRefreshData) btnRefreshData.addEventListener('click', fetchDashboardData);
+
   rawData = [];
   filteredData = [];
   paymentData = [];
@@ -906,15 +946,13 @@ document.addEventListener('DOMContentLoaded', () => {
   filteredRefundPostpayData = [];
   selectedDistricts = [];
   
-  // Clear any legacy cached DB from localStorage
-  try {
-    localStorage.removeItem(PAYMENT_DB_STORAGE_KEY);
-    localStorage.removeItem(REFUND_POSTPAY_DB_STORAGE_KEY);
-  } catch (e) {}
-
+  // 새로고침 시 구글 시트 수신 전 이전 세션의 캐시 데이터가 노출되지 않도록 잔재 DB 초기화
+  localStorage.removeItem(PAYMENT_DB_STORAGE_KEY);
+  localStorage.removeItem(REFUND_POSTPAY_DB_STORAGE_KEY);
+  
   updatePaymentDbBadge();
   updateRefundDbBadge();
-  updateDataTimestamp('구글시트 데이터 로드 중...');
+  updateDataTimestamp('DB갱신 중...');
   updateContractorDbBadge();
   initEventListeners();
   setupMultiSelectEvents();
@@ -978,8 +1016,20 @@ function initTableColumnResizer() {
 
 function setupContractorMappingEvents() {
   const btnDownload = document.getElementById('btnDownloadContractorTemplate');
+  const btnUpload = document.getElementById('btnUploadContractorMapping');
+  const fileInput = document.getElementById('contractorFileInput');
+
   if (btnDownload) {
     btnDownload.addEventListener('click', downloadContractorMappingTemplate);
+  }
+
+  if (btnUpload && fileInput) {
+    btnUpload.addEventListener('click', () => fileInput.click());
+    fileInput.addEventListener('change', (e) => {
+      if (e.target.files.length > 0) {
+        handleContractorMappingFile(e.target.files[0]);
+      }
+    });
   }
 }
 
@@ -1015,15 +1065,129 @@ function downloadContractorMappingTemplate() {
   XLSX.writeFile(workbook, `SEMS_수동_맵핑_DB_전체_${timestampStr}.xlsx`);
 }
 
+function handleContractorMappingFile(file) {
+  const reader = new FileReader();
+  reader.onload = function(e) {
+    try {
+      const data = new Uint8Array(e.target.result);
+      const workbook = XLSX.read(data, { type: 'array', cellDates: true });
+      const firstSheetName = workbook.SheetNames[0];
+      const worksheet = workbook.Sheets[firstSheetName];
+      
+      const rawRows = XLSX.utils.sheet_to_json(worksheet, { header: 1, defval: '', raw: false });
+
+      if (rawRows.length <= 1) {
+        alert('수동 맵핑 엑셀 파일에 데이터 행이 없습니다.');
+        return;
+      }
+
+      let headerRowIndex = 0;
+      for (let r = 0; r < Math.min(rawRows.length, 10); r++) {
+        const rowStr = rawRows[r].map(c => normalizeString(c)).join(' ');
+        if (rowStr.includes('허가번호') || rowStr.includes('도급사') || rowStr.includes('공사매체') || rowStr.includes('공사코드')) {
+          headerRowIndex = r;
+          break;
+        }
+      }
+
+      const headerRow = rawRows[headerRowIndex].map(h => normalizeString(h));
+
+      const findCol = (kwList, defIdx) => {
+        for (let i = 0; i < headerRow.length; i++) {
+          if (kwList.some(kw => headerRow[i].includes(normalizeString(kw)))) return i;
+        }
+        return defIdx;
+      };
+
+      const permitColIdx = findCol(['허가번호', '신청번호'], 0);
+      const bpColIdx = findCol(['BP사', '협력사'], 1);
+      const contractorColIdx = findCol(['도급사'], 2);
+      const mediaColIdx = findCol(['공사매체/구분', '공사매체', '매체', '구분'], 3);
+      const codeColIdx = findCol(['TANGO공사코드/비고', 'TANGO공사코드', '공사코드', '코드', '비고'], 4);
+
+      const contractorMap = getContractorMap();
+      let insertedCount = 0;
+      let updatedCount = 0;
+      let unchangedCount = 0;
+
+      for (let r = headerRowIndex + 1; r < rawRows.length; r++) {
+        const row = rawRows[r];
+        if (!row || row.length === 0) continue;
+
+        const pNo = String(row[permitColIdx] || '').trim();
+        if (!pNo || pNo.includes('허가번호')) continue;
+
+        const bpVal = String(row[bpColIdx] || '').trim();
+        const contractorVal = String(row[contractorColIdx] || '').trim();
+        const mediaVal = String(row[mediaColIdx] || '').trim();
+        const codeVal = String(row[codeColIdx] || '').trim();
+
+        const newItem = {
+          bp: bpVal,
+          contractor: contractorVal,
+          media: mediaVal,
+          code: codeVal,
+          lastUpdated: getCurrentFormattedTimestamp()
+        };
+
+        if (!contractorMap[pNo]) {
+          contractorMap[pNo] = newItem;
+          insertedCount++;
+        } else {
+          const oldItem = contractorMap[pNo];
+          const isChanged = oldItem.bp !== newItem.bp ||
+                            oldItem.contractor !== newItem.contractor ||
+                            oldItem.media !== newItem.media ||
+                            oldItem.code !== newItem.code;
+
+          if (isChanged) {
+            contractorMap[pNo] = { ...oldItem, ...newItem };
+            updatedCount++;
+          } else {
+            unchangedCount++;
+          }
+        }
+      }
+
+      saveContractorMap(contractorMap);
+      updateContractorDbBadge();
+
+      reapplyContractorMapToRawData();
+      populateDropdownOptions();
+      applyFilters();
+
+      confetti({ particleCount: 100, spread: 80, origin: { y: 0.6 } });
+      alert(`성공: 수동 맵핑 DB 업데이트 완료!\n\n- 신규 등록: ${insertedCount}건\n- 변경 업데이트: ${updatedCount}건\n- 변경없음 (기존유지): ${unchangedCount}건\n- 현재 DB 총 보관 허가번호: ${Object.keys(contractorMap).length}건`);
+    } catch (err) {
+      console.error(err);
+      alert('수동 맵핑 엑셀 파일 파싱 중 오류가 발생했습니다.');
+    }
+  };
+  reader.readAsArrayBuffer(file);
+}
+
 function setupPaymentDataEvents() {
   const btnDownload = document.getElementById('btnDownloadPaymentTemplate');
+  const btnUpload = document.getElementById('btnUploadPaymentData');
+  const fileInput = document.getElementById('paymentFileInput');
+
   if (btnDownload) {
     btnDownload.addEventListener('click', downloadPaymentTemplate);
+  }
+
+  if (btnUpload && fileInput) {
+    btnUpload.addEventListener('click', () => fileInput.click());
+    fileInput.addEventListener('change', (e) => {
+      if (e.target.files.length > 0) {
+        handlePaymentExcelFile(e.target.files[0]);
+      }
+    });
   }
 }
 
 function downloadPaymentTemplate() {
-  const items = paymentData;
+  const dbMap = getPaymentDBMap();
+  const items = Object.values(dbMap);
 
   let exportRows = [];
 
@@ -1042,11 +1206,10 @@ function downloadPaymentTemplate() {
       '상태': item.status || ''
     }));
   } else {
-    // No internal sample data - emit only header row to keep sheet structure
-    exportRows = [{
-      '허가신청번호': '', '허가번호': '', '고지종류': '', '부과구분': '',
-      '공사명': '', '금액': '', '부과일': '', '납기내': '', '납부일': '', '영수증확인': '', '상태': ''
-    }];
+    exportRows = [
+      { '허가신청번호': '통신-260513-0097', '허가번호': '동대문구-2026-통신-0016', '고지종류': '시비-점용료', '부과구분': '선납분', '공사명': '서울동대문구 고신자로 동신관로 지중화공사(시도_보도구간)', '금액': '62,040원', '부과일': '2026-07-30', '납기내': '2026-08-30', '납부일': '-', '영수증확인': '영수증확인', '상태': '납부확인요청' },
+      { '허가신청번호': '통신-260421-0054', '허가번호': '동대문구-2026-통신-0010', '고지종류': '시비-점용료', '부과구분': '선납분', '공사명': '25년 서울 동대문구 용두동 원 앞 통신관로공사', '금액': '1,875,720원', '부과일': '2026-07-06', '납기내': '2026-08-06', '납부일': '2026-07-14', '영수증확인': '영수증확인', '상태': '완납' }
+    ];
   }
 
   const timestampStr = getFileTimestampString();
@@ -1056,15 +1219,139 @@ function downloadPaymentTemplate() {
   XLSX.writeFile(workbook, `SEMS_고지서_납부현황_DB_전체_${timestampStr}.xlsx`);
 }
 
+function handlePaymentExcelFile(file) {
+  const reader = new FileReader();
+  reader.onload = function(e) {
+    try {
+      const data = new Uint8Array(e.target.result);
+      const workbook = XLSX.read(data, { type: 'array', cellDates: true });
+      const firstSheetName = workbook.SheetNames[0];
+      const worksheet = workbook.Sheets[firstSheetName];
+      
+      const rawRows = XLSX.utils.sheet_to_json(worksheet, { header: 1, defval: '', raw: false });
+
+      if (rawRows.length <= 1) {
+        alert('고지서/납부현황 엑셀 파일에 데이터 행이 없습니다.');
+        return;
+      }
+
+      let headerRowIndex = 0;
+      for (let r = 0; r < Math.min(rawRows.length, 10); r++) {
+        const rowStr = rawRows[r].map(c => normalizeString(c)).join(' ');
+        if (rowStr.includes('허가신청번호') || rowStr.includes('고지종류') || rowStr.includes('영수증확인') || rowStr.includes('완납')) {
+          headerRowIndex = r;
+          break;
+        }
+      }
+
+      const headerRow = rawRows[headerRowIndex].map(h => normalizeString(h));
+
+      const findCol = (kwList, defIdx) => {
+        for (let i = 0; i < headerRow.length; i++) {
+          if (kwList.some(kw => headerRow[i].includes(normalizeString(kw)))) return i;
+        }
+        return defIdx;
+      };
+
+      const permitAppColIdx = findCol(['허가신청번호', '신청번호'], 0);
+      const permitNoColIdx = findCol(['허가번호'], 1);
+      const noticeTypeColIdx = findCol(['고지종류', '종류'], 2);
+      const categoryColIdx = findCol(['부과구분', '구분'], 3);
+      const titleColIdx = findCol(['공사명', '건명'], 4);
+      const amountColIdx = findCol(['금액'], 5);
+      const issueDateColIdx = findCol(['부과일'], 6);
+      const dueDateColIdx = findCol(['납기내', '납기'], 7);
+      const payDateColIdx = findCol(['납부일'], 8);
+      const statusColIdx = findCol(['상태', '완납상태'], 10);
+
+      const dbMap = getPaymentDBMap();
+      let insertedCount = 0;
+      let updatedCount = 0;
+      let unchangedCount = 0;
+
+      for (let r = headerRowIndex + 1; r < rawRows.length; r++) {
+        const row = rawRows[r];
+        if (!row || row.length === 0) continue;
+
+        const pAppNo = String(row[permitAppColIdx] || '').trim();
+        if (!pAppNo || pAppNo.includes('허가신청번호')) continue;
+
+        const permitNo = String(row[permitNoColIdx] || '').trim();
+        const noticeType = String(row[noticeTypeColIdx] || '').trim();
+        const category = String(row[categoryColIdx] || '').trim();
+        const title = String(row[titleColIdx] || '').trim();
+        const amount = String(row[amountColIdx] || '').trim();
+        const issueDate = formatExcelDate(row[issueDateColIdx]);
+        const dueDate = formatExcelDate(row[dueDateColIdx]);
+        const payDate = formatExcelDate(row[payDateColIdx]);
+        const status = String(row[statusColIdx] || '').trim();
+
+        const itemKey = `${pAppNo}_${noticeType}_${permitNo}_${category}`;
+
+        const newItemData = {
+          permitAppNo: pAppNo,
+          permitNo: permitNo,
+          noticeType: noticeType,
+          category: category,
+          title: title,
+          amount: amount,
+          issueDate: issueDate,
+          dueDate: dueDate,
+          payDate: payDate,
+          status: status || '납부확인요청',
+          lastUpdated: getCurrentFormattedTimestamp()
+        };
+
+        if (!dbMap[itemKey]) {
+          dbMap[itemKey] = newItemData;
+          insertedCount++;
+        } else {
+          const existing = dbMap[itemKey];
+          if (existing.status !== newItemData.status || existing.payDate !== newItemData.payDate || existing.amount !== newItemData.amount) {
+            dbMap[itemKey] = { ...existing, ...newItemData };
+            updatedCount++;
+          } else {
+            unchangedCount++;
+          }
+        }
+      }
+
+      savePaymentDBMap(dbMap);
+      loadPaymentDataFromDB();
+      applyFilters();
+
+      confetti({ particleCount: 100, spread: 80, origin: { y: 0.6 } });
+      alert(`성공: 고지서 / 납부현황 DB 업데이트 완료!\n\n- 신규 등록: ${insertedCount}건\n- 변경 업데이트: ${updatedCount}건\n- 변경없음 (기존유지): ${unchangedCount}건\n- 현재 DB 총 보관: ${Object.keys(dbMap).length}건`);
+    } catch (err) {
+      console.error(err);
+      alert('고지서/납부현황 엑셀 파일 파싱 중 오류가 발생했습니다.');
+    }
+  };
+  reader.readAsArrayBuffer(file);
+}
+
 function setupRefundPostpayEvents() {
   const btnDownload = document.getElementById('btnDownloadRefundTemplate');
+  const btnUpload = document.getElementById('btnUploadRefundData');
+  const fileInput = document.getElementById('refundFileInput');
+
   if (btnDownload) {
     btnDownload.addEventListener('click', downloadRefundPostpayTemplate);
+  }
+
+  if (btnUpload && fileInput) {
+    btnUpload.addEventListener('click', () => fileInput.click());
+    fileInput.addEventListener('change', (e) => {
+      if (e.target.files.length > 0) {
+        handleRefundPostpayExcelFile(e.target.files[0]);
+      }
+    });
   }
 }
 
 function downloadRefundPostpayTemplate() {
-  const items = refundPostpayData;
+  const dbMap = getRefundPostpayDBMap();
+  const items = Object.values(dbMap);
 
   let exportRows = [];
 
@@ -1076,8 +1363,16 @@ function downloadRefundPostpayTemplate() {
       '준공면적 (㎡)': item.compArea || 0
     }));
   } else {
-    // No internal sample data - emit only header row to keep sheet structure
-    exportRows = [{ '허가번호': '', '복구주체': '', '허가면적 (㎡)': '', '준공면적 (㎡)': '' }];
+    exportRows = [
+      {
+        '허가번호': '중구-2022-통신-0010', '복구주체': '서부도로사업소',
+        '허가면적 (㎡)': 199.2, '준공면적 (㎡)': 396.4
+      },
+      {
+        '허가번호': '은평구-2025-통신-0033', '복구주체': '원인자복구',
+        '허가면적 (㎡)': 301.2, '준공면적 (㎡)': 168
+      }
+    ];
   }
 
   const timestampStr = getFileTimestampString();
@@ -1085,6 +1380,173 @@ function downloadRefundPostpayTemplate() {
   const workbook = XLSX.utils.book_new();
   XLSX.utils.book_append_sheet(workbook, worksheet, '환수사후납대상');
   XLSX.writeFile(workbook, `SEMS_환수_사후납_대상_DB_전체_${timestampStr}.xlsx`);
+}
+
+function handleRefundPostpayExcelFile(file) {
+  const reader = new FileReader();
+  reader.onload = function(e) {
+    try {
+      const data = new Uint8Array(e.target.result);
+      const workbook = XLSX.read(data, { type: 'array', cellDates: true });
+      const firstSheetName = workbook.SheetNames[0];
+      const worksheet = workbook.Sheets[firstSheetName];
+      
+      const rawRows = XLSX.utils.sheet_to_json(worksheet, { header: 1, defval: '', raw: false });
+
+      if (rawRows.length <= 1) {
+        alert('환수/사후납 대상 엑셀 파일에 데이터 행이 없습니다.');
+        return;
+      }
+
+      let headerRowIndex = 0;
+      for (let r = 0; r < Math.min(rawRows.length, 10); r++) {
+        const rowStr = rawRows[r].map(c => normalizeString(c)).join(' ');
+        if (rowStr.includes('허가번호') || rowStr.includes('복구주체') || rowStr.includes('면적')) {
+          headerRowIndex = r;
+          break;
+        }
+      }
+
+      const headerRow = rawRows[headerRowIndex].map(h => normalizeString(h));
+
+      const findCol = (kwList, defIdx) => {
+        for (let i = 0; i < headerRow.length; i++) {
+          if (kwList.some(kw => headerRow[i].includes(normalizeString(kw)))) return i;
+        }
+        return defIdx;
+      };
+
+      const statusColIdx = findCol(['처리상태', '상태'], 0);
+      const permitNoColIdx = findCol(['허가번호', '신청번호'], 1);
+      const restoreEntityColIdx = findCol(['관리청', '복구주체', '주체'], 3);
+
+      let permitAreaColIdx = 7;  // H열: 허가_면적(㎡)
+      let compAreaColIdx = 12;   // M열: 준공_면적(㎡)
+
+      for (let i = 0; i < headerRow.length; i++) {
+        const h = headerRow[i];
+        if (h.includes('허가_면적') || h.includes('허가면적') || (h.includes('면적') && h.includes('허가') && !h.includes('준공') && !h.includes('차이'))) {
+          permitAreaColIdx = i;
+        } else if (h.includes('준공_면적') || h.includes('준공면적') || (h.includes('면적') && h.includes('준공'))) {
+          compAreaColIdx = i;
+        }
+      }
+
+      const groupedPermits = {};
+
+      for (let r = headerRowIndex + 1; r < rawRows.length; r++) {
+        const row = rawRows[r];
+        if (!row || row.length === 0) continue;
+
+        const permitNo = String(row[permitNoColIdx] || '').trim();
+        if (!permitNo || permitNo.includes('허가번호')) continue;
+
+        const statusVal = String(row[statusColIdx] || '').trim();
+        const restoreEntity = String(row[restoreEntityColIdx] || '').trim();
+        const permitAreaVal = row[permitAreaColIdx];
+        const compAreaVal = row[compAreaColIdx];
+
+        const iArea = parseAreaNumber(permitAreaVal);
+        const oArea = parseAreaNumber(compAreaVal);
+
+        if (!groupedPermits[permitNo]) {
+          groupedPermits[permitNo] = {
+            permitNo: permitNo,
+            status: statusVal,
+            restoreEntity: restoreEntity,
+            totalPermitArea: 0,
+            totalCompArea: 0,
+            rowCount: 0
+          };
+        }
+
+        groupedPermits[permitNo].totalPermitArea += iArea;
+        groupedPermits[permitNo].totalCompArea += oArea;
+        if (statusVal && (!groupedPermits[permitNo].status || groupedPermits[permitNo].status === '')) {
+          groupedPermits[permitNo].status = statusVal;
+        }
+        if (restoreEntity && (!groupedPermits[permitNo].restoreEntity || groupedPermits[permitNo].restoreEntity === '')) {
+          groupedPermits[permitNo].restoreEntity = restoreEntity;
+        }
+        groupedPermits[permitNo].rowCount++;
+      }
+
+      const existingDbMap = getRefundPostpayDBMap();
+      
+      let insertedCount = 0;
+      let updatedCount = 0;
+      let unchangedCount = 0;
+
+      for (const pNo in groupedPermits) {
+        const pObj = groupedPermits[pNo];
+        const permitAreaSum = Math.round(pObj.totalPermitArea * 100) / 100;
+        const compAreaSum = Math.round(pObj.totalCompArea * 100) / 100;
+        
+        const diff = Math.round((permitAreaSum - compAreaSum) * 100) / 100;
+
+        let targetType = '일치';
+        if (permitAreaSum > compAreaSum) {
+          targetType = '환수대상';
+        } else if (permitAreaSum < compAreaSum) {
+          targetType = '사후납대상';
+        } else {
+          continue;
+        }
+
+        let resolvedStatus = pObj.status || '';
+        if (!resolvedStatus && rawData.length > 0) {
+          const cleanP = cleanForSearch(pNo);
+          const match = rawData.find(r => cleanForSearch(r.permitNo) === cleanP);
+          if (match && match.rawStatus) {
+            resolvedStatus = match.rawStatus;
+          }
+        }
+        if (!resolvedStatus) resolvedStatus = '준공검토';
+
+        const newItemData = {
+          permitNo: pNo,
+          status: resolvedStatus,
+          rawStatus: resolvedStatus,
+          restoreEntity: pObj.restoreEntity || '원인자복구',
+          permitArea: permitAreaSum,
+          compArea: compAreaSum,
+          areaDiff: diff,
+          type: targetType,
+          lastUpdated: getCurrentFormattedTimestamp()
+        };
+
+        if (!existingDbMap[pNo]) {
+          existingDbMap[pNo] = newItemData;
+          insertedCount++;
+        } else {
+          const oldItem = existingDbMap[pNo];
+          const isChanged = oldItem.permitArea !== newItemData.permitArea ||
+                            oldItem.compArea !== newItemData.compArea ||
+                            oldItem.areaDiff !== newItemData.areaDiff ||
+                            oldItem.restoreEntity !== newItemData.restoreEntity ||
+                            oldItem.type !== newItemData.type;
+
+          if (isChanged) {
+            existingDbMap[pNo] = { ...oldItem, ...newItemData };
+            updatedCount++;
+          } else {
+            unchangedCount++;
+          }
+        }
+      }
+
+      saveRefundPostpayDBMap(existingDbMap);
+      loadRefundPostpayDataFromDB();
+      applyFilters();
+
+      confetti({ particleCount: 100, spread: 80, origin: { y: 0.6 } });
+      alert(`성공: 환수 / 사후납 대상 DB 업데이트 완료!\n\n- 신규 등록: ${insertedCount}건\n- 변경 업데이트: ${updatedCount}건\n- 변경없음 (기존유지): ${unchangedCount}건\n- 현재 DB 총 보관 허가번호: ${Object.keys(existingDbMap).length}건`);
+    } catch (err) {
+      console.error(err);
+      alert('환수/사후납 대상 엑셀 파싱 중 오류가 발생했습니다.');
+    }
+  };
+  reader.readAsArrayBuffer(file);
 }
 
 function reapplyContractorMapToRawData() {
@@ -1156,7 +1618,7 @@ function setupManualBpModalEvents() {
     }
 
     if (rawData.length === 0) {
-      alert('현재 데이터가 로드되지 않았습니다.');
+      alert('현재 업로드된 엑셀 데이터가 없습니다. 먼저 엑셀 파일을 업로드한 후 허가번호를 조회하여 저장해 주세요.');
       return;
     }
 
@@ -1167,7 +1629,7 @@ function setupManualBpModalEvents() {
     });
 
     if (!matchedItem) {
-      alert(`⚠️ 입력하신 허가번호 [${permitNoVal}]는 현재 데이터에 존재하지 않습니다.\n\n허가번호를 다시 한번 정확히 확인해 주세요.`);
+      alert(`⚠️ 입력하신 허가번호 [${permitNoVal}]는 현재 업로드된 엑셀 데이터에 존재하지 않습니다.\n\n허가번호를 다시 한번 정확히 확인해 주세요.`);
       return;
     }
 
@@ -1344,7 +1806,68 @@ function updateMultiSelectLabel() {
   }
 }
 
+window.openVersionModal = function(e) {
+  if (e) {
+    if (e.stopPropagation) e.stopPropagation();
+    if (e.preventDefault) e.preventDefault();
+  }
+  const modal = document.getElementById('versionModalOverlay');
+  if (modal) {
+    modal.style.display = 'flex';
+    modal.style.zIndex = '99999';
+    if (window.lucide && window.lucide.createIcons) {
+      try { window.lucide.createIcons(); } catch(err) {}
+    }
+  }
+  return false;
+};
+
+window.closeVersionModal = function(e) {
+  if (e) {
+    if (e.stopPropagation) e.stopPropagation();
+    if (e.preventDefault) e.preventDefault();
+  }
+  const modal = document.getElementById('versionModalOverlay');
+  if (modal) {
+    modal.style.display = 'none';
+  }
+  return false;
+};
+
+function initVersionModal() {
+  const badge = document.getElementById('btnVersionBadge');
+  const modal = document.getElementById('versionModalOverlay');
+  const btnClose = document.getElementById('btnCloseVersionModal');
+  const btnConfirm = document.getElementById('btnConfirmVersionModal');
+
+  if (badge) {
+    badge.removeEventListener('click', window.openVersionModal);
+    badge.addEventListener('click', window.openVersionModal);
+  }
+
+  if (btnClose) {
+    btnClose.removeEventListener('click', window.closeVersionModal);
+    btnClose.addEventListener('click', window.closeVersionModal);
+  }
+  if (btnConfirm) {
+    btnConfirm.removeEventListener('click', window.closeVersionModal);
+    btnConfirm.addEventListener('click', window.closeVersionModal);
+  }
+
+  if (modal) {
+    modal.addEventListener('click', (e) => {
+      if (e.target === modal) window.closeVersionModal(e);
+    });
+  }
+}
+
 function initEventListeners() {
+  initVersionModal();
+  const btnRefreshData = document.getElementById('btnRefreshData');
+  if (btnRefreshData) {
+    btnRefreshData.addEventListener('click', fetchDashboardData);
+  }
+
   document.getElementById('selectOrgCategory').addEventListener('change', () => {
     populateDropdownOptions();
     currentPage = 1;
@@ -1602,9 +2125,26 @@ function applyFilters() {
       if (targetSub === '환수대상' || targetSub === '사후납대상') {
         filteredRefundPostpayData = refundPostpayData.filter(r => {
           if (String(r.type || '').trim() !== targetSub) return false;
+          
+          const rRegion = r.region || (r.permitNo && r.permitNo.includes('-') ? r.permitNo.split('-')[0] : '');
+          if (orgCategory === '지자체') {
+            if (selectedDistricts.length > 0 && !selectedDistricts.includes(rRegion)) return false;
+          } else if (orgValue !== 'ALL') {
+            if (orgCategory === 'BP사' && r.company && r.company !== orgValue) return false;
+            if (orgCategory === '구축팀' && getBuildTeam(rRegion) !== orgValue) return false;
+          }
+
+          if (searchKeyword) {
+            const cleanP = cleanForSearch(r.permitNo);
+            const rawP = String(r.permitNo || '').toLowerCase();
+            const rawEntity = String(r.restoreEntity || '').toLowerCase();
+            const isMatch = rawP.includes(rawKeyword) || cleanP.includes(cleanKeyword) || rawEntity.includes(rawKeyword);
+            if (!isMatch) return false;
+          }
+
           if (validPermitSet) {
             const cleanP = cleanForSearch(r.permitNo);
-            return validPermitSet.has(r.permitNo) || validCleanPermitSet.has(cleanP);
+            return validPermitSet.has(r.permitNo) || validCleanPermitSet.has(cleanP) || (rRegion && selectedDistricts.length === 0);
           }
           return true;
         });
@@ -1650,7 +2190,7 @@ function updateActiveFilterBadge(orgValue, startDate, endDate, searchKeyword, ba
   const orgCategory = document.getElementById('selectOrgCategory').value;
   
   if (rawData.length === 0 && paymentData.length === 0 && refundPostpayData.length === 0) {
-    badge.textContent = '구글시트 데이터 대기중';
+    badge.textContent = '엑셀 데이터 업로드 대기중';
     badge.style.background = '#fef2f2';
     badge.style.color = '#dc2626';
     badge.style.borderColor = '#fecaca';
@@ -1810,6 +2350,37 @@ function updateSummaryCard(prefix, groupData, elementList) {
   });
 }
 
+function bindEmptyGuideDragAndDrop() {
+  const guideCard = document.getElementById('mainEmptyUploadGuide');
+  if (!guideCard) return;
+
+  ['dragenter', 'dragover'].forEach(eventName => {
+    guideCard.addEventListener(eventName, (e) => {
+      e.preventDefault();
+      e.stopPropagation();
+      guideCard.classList.add('drag-active');
+    }, false);
+  });
+
+  ['dragleave', 'dragend'].forEach(eventName => {
+    guideCard.addEventListener(eventName, (e) => {
+      e.preventDefault();
+      e.stopPropagation();
+      guideCard.classList.remove('drag-active');
+    }, false);
+  });
+
+  guideCard.addEventListener('drop', (e) => {
+    e.preventDefault();
+    e.stopPropagation();
+    guideCard.classList.remove('drag-active');
+    
+    if (e.dataTransfer && e.dataTransfer.files.length > 0) {
+      handleExcelFile(e.dataTransfer.files[0]);
+    }
+  }, false);
+}
+
 function renderTableData() {
   const tbody = document.getElementById('tableBody');
   const thead = document.getElementById('tableHead');
@@ -1827,7 +2398,7 @@ function renderTableData() {
     thead.innerHTML = `
       <tr>
         <th style="width: 45px;">No<div class="resizer"></div></th>
-        <th style="width: 170px;">허가번호<div class="resizer"></div></th>
+        <th style="width: 210px;">허가번호<div class="resizer"></div></th>
         <th style="width: 150px;">원본 처리상태<div class="resizer"></div></th>
         <th style="width: 130px;">복구주체<div class="resizer"></div></th>
         <th style="width: 130px; background:#fff7ed;">허가면적 (㎡)<div class="resizer"></div></th>
@@ -1847,8 +2418,6 @@ function renderTableData() {
             <p>선택하신 필터 조건에 부합하는 [${subName}] 정산 내역이 없습니다.</p>
           </td>
         </tr>`;
-      const dataTable = document.getElementById('dataTable');
-      if (dataTable) dataTable.style.height = '100%';
       renderPagination(0);
       initTableColumnResizer();
       return;
@@ -1865,44 +2434,36 @@ function renderTableData() {
     tbody.innerHTML = pageData.map((item, index) => {
       const isRefund = item.type === '환수대상';
       const diffVal = Math.round((item.permitArea - item.compArea) * 100) / 100;
-      const diffFormatted = diffVal > 0 ? `+${diffVal.toLocaleString()} ㎡` : `${diffVal.toLocaleString()} ㎡`;
+      const diffFormatted = formatAreaNumber(diffVal, true);
       
       const diffTagStyle = isRefund 
         ? 'color:#c2410c; font-weight:800; background:#fff7ed; border:1px solid #ffedd5; padding:3px 10px; border-radius:6px;'
         : 'color:#7c3aed; font-weight:800; background:#faf5ff; border:1px solid #e9d5ff; padding:3px 10px; border-radius:6px;';
 
-      let currentStatus = '준공검토';
-      if (rawData.length > 0) {
+      let currentStatus = item.status || item.rawStatus || '';
+      if (!currentStatus && rawData.length > 0) {
         const cleanP = cleanForSearch(item.permitNo);
         const match = rawData.find(r => cleanForSearch(r.permitNo) === cleanP);
         if (match && match.rawStatus) {
           currentStatus = match.rawStatus;
-        } else if (item.status) {
-          currentStatus = item.status;
         }
-      } else if (item.status) {
-        currentStatus = item.status;
       }
+      if (!currentStatus) currentStatus = '준공검토';
 
       const rawStatusTag = `<span style="font-size:0.78rem; color:#1e293b; font-weight:700; background:#f1f5f9; border:1px solid #cbd5e1; padding:2px 8px; border-radius:4px; display:inline-block;">${currentStatus}</span>`;
 
       return `
         <tr>
           <td>${startIndex + index + 1}</td>
-          <td><code style="color:#2563eb; font-weight:700; font-size:0.88rem;">${item.permitNo || '-'}</code></td>
+          <td style="white-space:nowrap;"><code style="color:#2563eb; font-weight:700; font-size:0.86rem; white-space:nowrap;">${item.permitNo || '-'}</code></td>
           <td>${rawStatusTag}</td>
           <td><span style="color:#475569; font-weight:600;">${item.restoreEntity || '-'}</span></td>
-          <td style="font-weight:700; color:#c2410c; background:#fff7ed;">${(item.permitArea || 0).toLocaleString()} ㎡</td>
-          <td style="font-weight:700; color:#059669; background:#f0fdf4;">${(item.compArea || 0).toLocaleString()} ㎡</td>
+          <td style="font-weight:700; color:#c2410c; background:#fff7ed;">${formatAreaNumber(item.permitArea)}</td>
+          <td style="font-weight:700; color:#059669; background:#f0fdf4;">${formatAreaNumber(item.compArea)}</td>
           <td><span style="${diffTagStyle}">${diffFormatted}</span></td>
         </tr>
       `;
     }).join('');
-
-    const dataTable = document.getElementById('dataTable');
-    if (dataTable) {
-      dataTable.style.height = pageData.length >= 10 ? '100%' : 'auto';
-    }
 
     renderPagination(totalCount);
     initTableColumnResizer();
@@ -1913,7 +2474,7 @@ function renderTableData() {
     thead.innerHTML = `
       <tr>
         <th style="width: 40px;">No<div class="resizer"></div></th>
-        <th style="width: 145px;">허가번호<div class="resizer"></div></th>
+        <th style="width: 210px;">허가번호<div class="resizer"></div></th>
         <th style="width: 110px;">고지종류<div class="resizer"></div></th>
         <th style="width: 100px;">부과구분<div class="resizer"></div></th>
         <th style="width: 260px;">공사명<div class="resizer"></div></th>
@@ -1932,11 +2493,9 @@ function renderTableData() {
         <tr>
           <td colspan="9" class="empty-state">
             <div class="empty-icon">💳</div>
-            <p>선택하신 필터 조건에 부합하는 납부 관리 [${subName}] 내역이 없습니다.</p>
+            <p>선택하신 필터 조건에 부합하는 납부 관리 [${subName}] 내역이 없습니다.<br><span style="font-size:0.78rem; color:#64748b;">하단의 [고지서 / 납부현황 DB] 업로드 버튼을 통해 엑셀을 입력하시거나 상단 검색조건을 변경해보세요.</span></p>
           </td>
         </tr>`;
-      const dataTable = document.getElementById('dataTable');
-      if (dataTable) dataTable.style.height = '100%';
       renderPagination(0);
       initTableColumnResizer();
       return;
@@ -1959,7 +2518,7 @@ function renderTableData() {
       return `
         <tr>
           <td>${startIndex + index + 1}</td>
-          <td><code style="color:#2563eb; font-weight:600;">${item.permitNo || '-'}</code></td>
+          <td style="white-space:nowrap;"><code style="color:#2563eb; font-weight:700; font-size:0.86rem; white-space:nowrap;">${item.permitNo || '-'}</code></td>
           <td><span style="font-weight:600; color:#475569;">${item.noticeType || '-'}</span></td>
           <td>${item.category || '-'}</td>
           <td style="font-weight:600;" title="${item.title || ''}">${item.title || '-'}</td>
@@ -1971,11 +2530,6 @@ function renderTableData() {
       `;
     }).join('');
 
-    const dataTable = document.getElementById('dataTable');
-    if (dataTable) {
-      dataTable.style.height = pageData.length >= 10 ? '100%' : 'auto';
-    }
-
     renderPagination(totalCount);
     initTableColumnResizer();
 
@@ -1985,7 +2539,7 @@ function renderTableData() {
     thead.innerHTML = `
       <tr>
         <th style="width: 40px;">No<div class="resizer"></div></th>
-        <th style="width: 140px;">허가번호<div class="resizer"></div></th>
+        <th style="width: 210px;">허가번호<div class="resizer"></div></th>
         <th style="width: 260px;">공사명<div class="resizer"></div></th>
         <th style="width: 125px;">BP사(협력사)<div class="resizer"></div></th>
         <th style="width: 95px;">도급사<div class="resizer"></div></th>
@@ -2008,13 +2562,16 @@ function renderTableData() {
               <h3>구글 시트 데이터를 가져오는 중이거나 데이터가 없습니다</h3>
               <p style="font-size: 0.85rem; color: #475569; max-width: 580px; line-height: 1.5;">
                 Netlify 서버리스 함수를 통해 구글 시트의 최신 데이터를 자동으로 반영합니다.<br>
-                데이터가 나타나지 않을 경우 잠시 후 <strong>페이지를 새로고침(F5)</strong> 해주세요.
+                데이터가 나타나지 않을 경우 상단의 <strong>[구글시트 데이터 새로고침]</strong> 버튼을 클릭해주세요.
               </p>
+              <div class="empty-guide-actions" style="margin-top: 10px;">
+                <button onclick="fetchDashboardData()" class="btn btn-primary">
+                  <i data-lucide="refresh-cw"></i> 데이터 다시 불러오기
+                </button>
+              </div>
             </div>
           </td>
         </tr>`;
-      const dataTable = document.getElementById('dataTable');
-      if (dataTable) dataTable.style.height = '100%';
       lucide.createIcons();
       renderPagination(0);
       initTableColumnResizer();
@@ -2029,8 +2586,6 @@ function renderTableData() {
             <p>선택하신 조건과 일치하는 인허가 데이터가 없습니다.</p>
           </td>
         </tr>`;
-      const dataTable = document.getElementById('dataTable');
-      if (dataTable) dataTable.style.height = '100%';
       renderPagination(0);
       initTableColumnResizer();
       return;
@@ -2052,7 +2607,7 @@ function renderTableData() {
       return `
         <tr>
           <td>${startIndex + index + 1}</td>
-          <td><code style="color:#2563eb; font-weight:600;">${item.permitNo || '-'}</code></td>
+          <td style="white-space:nowrap;"><code style="color:#2563eb; font-weight:700; font-size:0.86rem; white-space:nowrap;">${item.permitNo || '-'}</code></td>
           <td style="font-weight:600;" title="${item.title || ''}">${item.title || '-'}</td>
           <td><span style="color:#7c3aed; font-weight:600;">${item.company || '-'}</span>${manualTag}</td>
           <td>${contractorDisplay}</td>
@@ -2063,11 +2618,6 @@ function renderTableData() {
         </tr>
       `;
     }).join('');
-
-    const dataTable = document.getElementById('dataTable');
-    if (dataTable) {
-      dataTable.style.height = pageData.length >= 10 ? '100%' : 'auto';
-    }
 
     renderPagination(totalCount);
     initTableColumnResizer();
@@ -2123,6 +2673,141 @@ window.changePage = function(newPage) {
     renderTableData();
   }
 };
+
+function handleExcelFile(file) {
+  const reader = new FileReader();
+  reader.onload = function(e) {
+    try {
+      const data = new Uint8Array(e.target.result);
+      const workbook = XLSX.read(data, { type: 'array', cellDates: true });
+      const firstSheetName = workbook.SheetNames[0];
+      const worksheet = workbook.Sheets[firstSheetName];
+      
+      const rawRows = XLSX.utils.sheet_to_json(worksheet, { header: 1, defval: '', raw: false });
+
+      if (rawRows.length <= 1) {
+        alert('엑셀 파일에 데이터 행이 존재하지 않습니다.');
+        return;
+      }
+
+      let headerRowIndex = 0;
+      for (let r = 0; r < Math.min(rawRows.length, 10); r++) {
+        const rowStr = rawRows[r].map(c => normalizeString(c)).join(' ');
+        if (rowStr.includes('처리상태') || rowStr.includes('공사명') || rowStr.includes('신청접수일') || rowStr.includes('구청') || rowStr.includes('허가번호') || rowStr.includes('신청번호')) {
+          headerRowIndex = r;
+          break;
+        }
+      }
+
+      const headerRow = rawRows[headerRowIndex].map(h => normalizeString(h));
+
+      const findColIndex = (keywords, defaultIndex) => {
+        for (let i = 0; i < headerRow.length; i++) {
+          const h = headerRow[i];
+          if (keywords.some(kw => h.includes(normalizeString(kw)))) {
+            return i;
+          }
+        }
+        return defaultIndex;
+      };
+
+      const regionIdx = findColIndex(['구청', '지역', '시군구', '자치구', '지자체'], 1);
+      
+      let companyIdx = -1;
+      for (let i = 0; i < headerRow.length; i++) {
+        const h = headerRow[i];
+        if (h.includes('BP사') || h.includes('협력사') || h.includes('공사업체') || h.includes('시공사')) {
+          companyIdx = i;
+          break;
+        }
+      }
+      if (companyIdx === -1) {
+        companyIdx = findColIndex(['신청인', '업체명'], 10);
+      }
+
+      const COLUMN_F_INDEX = 5;
+      const COLUMN_D_INDEX = 3;  
+      const COLUMN_E_INDEX = 4;  
+      const COLUMN_L_INDEX = 11; 
+      const COLUMN_N_INDEX = 13; 
+
+      const parsedData = [];
+      let validCounter = 1;
+
+      for (let r = headerRowIndex + 1; r < rawRows.length; r++) {
+        const row = rawRows[r];
+        if (!row || row.length === 0) continue;
+
+        const rowJoinText = row.join(' ');
+        
+        let fColumnPermitNo = row[COLUMN_F_INDEX];
+        if (fColumnPermitNo === undefined || fColumnPermitNo === null || String(fColumnPermitNo).trim() === '') {
+          fColumnPermitNo = row[findColIndex(['허가번호', '신청번호'], 5)];
+        }
+
+        let dColumnApplyDate = row[COLUMN_D_INDEX];
+        let eColumnPermitDate = row[COLUMN_E_INDEX];
+        let lColumnTitle = row[COLUMN_L_INDEX];
+        let nColumnStatus = row[COLUMN_N_INDEX];
+
+        if (!dColumnApplyDate) dColumnApplyDate = row[findColIndex(['신청접수일', '신청일'], 3)];
+        if (!eColumnPermitDate) eColumnPermitDate = row[findColIndex(['허가승인일', '허가일'], 4)];
+        if (!lColumnTitle) lColumnTitle = row[findColIndex(['공사명', '사업명', '건명'], 11)];
+        if (!nColumnStatus) nColumnStatus = row[findColIndex(['처리상태', '진행상태'], 13)];
+
+        const regionVal = String(row[regionIdx] || '').trim();
+        const permitNoVal = String(fColumnPermitNo || '').trim();
+        const titleVal = String(lColumnTitle || '').trim();
+        const statusVal = String(nColumnStatus || '').trim();
+        const rawCompanyVal = String(row[companyIdx] || '').trim();
+
+        if (!statusVal && !titleVal && !permitNoVal && !regionVal) {
+          continue;
+        }
+        
+        const normStatusStr = normalizeString(statusVal);
+        if (normStatusStr === '처리상태' || normalizeString(titleVal) === '공사명' || regionVal === '구청' || regionVal === '지자체') {
+          continue;
+        }
+
+        const bpResult = resolveBPCompany(regionVal, rawCompanyVal, permitNoVal);
+        const cDetails = resolveContractorDetails(permitNoVal);
+
+        parsedData.push({
+          id: validCounter++,
+          region: regionVal,
+          permitNo: permitNoVal,
+          title: titleVal,
+          company: bpResult.company,
+          isManualBP: bpResult.isManual,
+          rawCompany: rawCompanyVal,
+          contractor: cDetails.contractor,
+          media: cDetails.media,
+          code: cDetails.code,
+          remark: cDetails.remark,
+          applyDate: formatExcelDate(dColumnApplyDate),
+          permitDate: formatExcelDate(eColumnPermitDate),
+          rawStatus: statusVal || '진행중',
+          rawRowText: rowJoinText
+        });
+      }
+
+      rawData = parsedData;
+      populateDropdownOptions();
+      updateDefaultDateRange();
+      resetFilters();
+      
+      updateDataTimestamp();
+      
+      confetti({ particleCount: 100, spread: 80, origin: { y: 0.6 } });
+      alert(`성공적으로 인허가 엑셀 데이터 ${rawData.length}건이 업로드되었습니다!`);
+    } catch (err) {
+      console.error(err);
+      alert('엑셀 파일을 읽는 도중 오류가 발생했습니다. 포맷을 확인해 주세요.');
+    }
+  };
+  reader.readAsArrayBuffer(file);
+}
 
 function exportFilteredToExcel() {
   const isPaymentCategory = activeCardFilter && activeCardFilter.category === '납부관리';
@@ -2205,4 +2890,15 @@ function exportFilteredToExcel() {
     XLSX.utils.book_append_sheet(workbook, worksheet, 'SEMS_조회결과');
     XLSX.writeFile(workbook, `SEMS_인허가현황_조회결과_${timestampStr}.xlsx`);
   }
+}
+
+/* Auto Execution on DOM Load */
+if (document.readyState === 'loading') {
+  document.addEventListener('DOMContentLoaded', () => {
+    initEventListeners();
+    fetchDashboardData();
+  });
+} else {
+  initEventListeners();
+  fetchDashboardData();
 }
