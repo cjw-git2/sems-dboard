@@ -18,6 +18,7 @@ let filteredPaymentData = [];    // Filtered payment dataset for Payment Card Cl
 let refundPostpayData = [];      // Separate Refund/Postpay dataset (환수 / 사후납 대상 DB, Grouped by Permit No)
 let filteredRefundPostpayData = []; // Filtered Refund/Postpay dataset
 let activeCardFilter = null;     // Specific card item filter state
+let isDataLoading = false;       // Loading state indicator for Google Sheet DB synchronization
 
 // Multi-Select District State
 let selectedDistricts = [];      // Array of selected district names (e.g. ['서초구', '강서구'])
@@ -394,8 +395,27 @@ function getCurrentFormattedTimestamp() {
  */
 function updateDataTimestamp(timestampStr) {
   const elem = document.getElementById('timestampText');
-  if (elem) {
-    const text = timestampStr || 'DB갱신';
+  const badge = document.getElementById('dataTimestampBadge');
+  const text = timestampStr || 'DB갱신';
+  const isUpdating = text.includes('중...') || text.includes('로딩');
+
+  if (badge) {
+    const icon = badge.querySelector('i');
+    if (isUpdating) {
+      badge.style.background = '#2563eb';
+      badge.style.borderColor = '#1d4ed8';
+      badge.style.boxShadow = '0 0 10px rgba(37, 99, 235, 0.45)';
+      badge.style.transition = 'all 0.3s ease';
+      if (icon) icon.style.color = '#ffffff';
+      if (elem) elem.innerHTML = `<span style="color:#ffffff; font-weight:800;">${text}</span>`;
+    } else {
+      badge.style.background = '#ffffff';
+      badge.style.borderColor = '#cbd5e1';
+      badge.style.boxShadow = '0 1px 2px rgba(0, 0, 0, 0.04)';
+      if (icon) icon.style.color = '#2563eb';
+      if (elem) elem.innerHTML = `<span style="color:#2563eb; font-weight:700;">${text}</span>`;
+    }
+  } else if (elem) {
     elem.innerHTML = `<span style="color:#2563eb; font-weight:700;">${text}</span>`;
   }
 }
@@ -404,8 +424,11 @@ function updateDataTimestamp(timestampStr) {
  * Netlify Serverless Function (getData.js)을 불러와 구글 시트 데이터 반영
  */
 async function fetchDashboardData() {
-  const timestampText = document.getElementById('timestampText');
-  if (timestampText) timestampText.innerHTML = '<span style="color:#2563eb; font-weight:700;">DB갱신 중...</span>';
+  isDataLoading = true;
+  updateDataTimestamp('DB갱신 중...');
+
+  // 로딩 시작 시 테이블 영역에 안내 로딩 UI 즉시 표시
+  renderTableData();
 
   // 구글 시트 새로고침 시작 시 이전 세션의 로컬 DB 잔재 초기화
   localStorage.removeItem(PAYMENT_DB_STORAGE_KEY);
@@ -464,17 +487,22 @@ async function fetchDashboardData() {
         updateDataTimestamp('DB갱신');
       }
 
+      isDataLoading = false;
       populateDropdownOptions();
       updateDefaultDateRange();
       applyFilters();
 
     } else {
+      isDataLoading = false;
       console.error("서버 응답 오류:", result.message);
       if (timestampText) timestampText.innerHTML = '<span style="color:#dc2626; font-weight:700;">DB갱신 실패</span>';
+      renderTableData();
     }
   } catch (error) {
+    isDataLoading = false;
     console.error("서버에서 데이터를 가져오지 못했습니다:", error);
     if (timestampText) timestampText.innerHTML = '<span style="color:#dc2626; font-weight:700;">DB갱신 에러</span>';
+    renderTableData();
   }
 }
 
@@ -2390,6 +2418,54 @@ function renderTableData() {
   const thead = document.getElementById('tableHead');
   const headerTitle = document.getElementById('tableHeaderTitle');
 
+  if (isDataLoading) {
+    if (headerTitle) headerTitle.textContent = '인허가 및 공사 목록 상세';
+    const countTag = document.getElementById('tableRecordCount');
+    if (countTag) {
+      countTag.textContent = 'DB 갱신 중...';
+      countTag.style.background = '#2563eb';
+      countTag.style.color = '#ffffff';
+      countTag.style.borderColor = '#1d4ed8';
+      countTag.style.boxShadow = '0 0 8px rgba(37, 99, 235, 0.4)';
+    }
+    if (thead) thead.innerHTML = '';
+    if (tbody) {
+      tbody.innerHTML = `
+        <tr>
+          <td colspan="15" style="padding: 0; border: none;">
+            <div style="padding: 70px 20px; display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 16px; background: #ffffff; text-align: center;">
+              <div style="width: 52px; height: 52px; border-radius: 50%; background: #eff6ff; display: flex; align-items: center; justify-content: center; border: 2px solid #bfdbfe; box-shadow: 0 4px 12px rgba(37, 99, 235, 0.15);">
+                <i data-lucide="loader-2" class="spin-icon" style="color: #2563eb; width: 28px; height: 28px;"></i>
+              </div>
+              <div style="display: flex; flex-direction: column; gap: 8px; align-items: center;">
+                <h4 style="font-size: 1.25rem; font-weight: 800; color: #0f172a; margin: 0;">
+                  인허가 및 공사 데이터 DB 갱신 중...
+                </h4>
+                <p style="font-size: 0.98rem; color: #334155; margin: 0; line-height: 1.6; max-width: 640px;">
+                  서울시 도로굴착복구 시스템 DB 최신 내역을 동기화하고 있습니다.<br>
+                  <span style="color: #2563eb; font-weight: 800; font-size: 1.05rem; display: inline-block; margin-top: 6px;">📌 서울시 도로굴착복구시스템 DB 실시간 갱신에는 수 초에서 수십 초가 소요될 수 있습니다. 잠시만 기다려 주세요.</span>
+                </p>
+              </div>
+            </div>
+          </td>
+        </tr>
+      `;
+    }
+    if (window.lucide && window.lucide.createIcons) {
+      try { window.lucide.createIcons(); } catch(e) {}
+    }
+    renderPagination(0);
+    return;
+  }
+
+  const countTag = document.getElementById('tableRecordCount');
+  if (countTag) {
+    countTag.style.background = '#e0f2fe';
+    countTag.style.color = '#0284c7';
+    countTag.style.borderColor = 'transparent';
+    countTag.style.boxShadow = 'none';
+  }
+
   const isPaymentCategory = activeCardFilter && activeCardFilter.category === '납부관리';
   const subName = isPaymentCategory ? String(activeCardFilter.sub || '').trim() : '';
 
@@ -2563,10 +2639,10 @@ function renderTableData() {
           <td colspan="9" style="padding: 0; border: none;">
             <div id="mainEmptyUploadGuide" class="empty-upload-guide">
               <i data-lucide="refresh-cw" style="width:48px; height:48px; color:#2563eb; animation: spin 2s linear infinite;"></i>
-              <h3>구글 시트 데이터를 가져오는 중이거나 데이터가 없습니다</h3>
+              <h3>서울시 도로굴착복구시스템 DB 데이터를 가져오는 중이거나 데이터가 없습니다</h3>
               <p style="font-size: 0.85rem; color: #475569; max-width: 580px; line-height: 1.5;">
-                Netlify 서버리스 함수를 통해 구글 시트의 최신 데이터를 자동으로 반영합니다.<br>
-                데이터가 나타나지 않을 경우 상단의 <strong>[구글시트 데이터 새로고침]</strong> 버튼을 클릭해주세요.
+                Netlify 서버리스 함수를 통해 서울시 도로굴착복구시스템 DB의 최신 데이터를 자동으로 반영합니다.<br>
+                데이터가 나타나지 않을 경우 상단의 <strong>[DB 새로고침]</strong> 버튼을 클릭해주세요.
               </p>
               <div class="empty-guide-actions" style="margin-top: 10px;">
                 <button onclick="fetchDashboardData()" class="btn btn-primary">

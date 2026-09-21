@@ -873,3 +873,12 @@ tbody tr:hover {
   justify-content: center;
   border-radius: 8px;
 }
+
+.spin-icon {
+  animation: spinLoader 1.2s linear infinite;
+}
+
+@keyframes spinLoader {
+  from { transform: rotate(0deg); }
+  to { transform: rotate(360deg); }
+}
