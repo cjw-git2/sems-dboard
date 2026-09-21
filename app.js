@@ -2441,9 +2441,8 @@ function renderTableData() {
                 <h4 style="font-size: 1.25rem; font-weight: 800; color: #0f172a; margin: 0;">
                   인허가 및 공사 데이터 DB 갱신 중...
                 </h4>
-                <p style="font-size: 0.98rem; color: #334155; margin: 0; line-height: 1.6; max-width: 640px;">
-                  서울시 도로굴착복구 시스템 DB 최신 내역을 동기화하고 있습니다.<br>
-                  <span style="color: #2563eb; font-weight: 800; font-size: 1.05rem; display: inline-block; margin-top: 6px;">📌 서울시 도로굴착복구시스템 DB 실시간 갱신에는 수 초에서 수십 초가 소요될 수 있습니다. 잠시만 기다려 주세요.</span>
+                <p style="font-size: 1.05rem; color: #2563eb; font-weight: 800; margin: 0; line-height: 1.6; max-width: 640px;">
+                  📌 서울시 도로굴착복구시스템 DB 실시간 갱신에는 수 초에서 수십 초가 소요될 수 있습니다. 잠시만 기다려 주세요.
                 </p>
               </div>
             </div>
