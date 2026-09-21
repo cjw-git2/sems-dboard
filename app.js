@@ -133,6 +133,7 @@ function handleLoginSubmit(e) {
     errBox.style.display = 'none';
     checkAuthentication();
     confetti({ particleCount: 80, spread: 70, origin: { y: 0.6 } });
+    fetchDashboardData();
   } else {
     errBox.style.display = 'flex';
     errText.textContent = '아이디 또는 비밀번호가 올바르지 않습니다.';
@@ -930,7 +931,7 @@ function classifyRecord(record) {
 document.addEventListener('DOMContentLoaded', () => {
   lucide.createIcons();
   
-  checkAuthentication();
+  const isAuthenticated = checkAuthentication();
 
   const btnLogout = document.getElementById('btnLogout');
   if (btnLogout) btnLogout.addEventListener('click', handleLogout);
@@ -952,17 +953,20 @@ document.addEventListener('DOMContentLoaded', () => {
   
   updatePaymentDbBadge();
   updateRefundDbBadge();
-  updateDataTimestamp('DB갱신 중...');
   updateContractorDbBadge();
   initEventListeners();
   setupMultiSelectEvents();
   setupManualBpModalEvents();
 
   populateDropdownOptions();
-  applyFilters();
 
-  // 구글 시트 데이터 서버리스 함수 호출
-  fetchDashboardData();
+  if (isAuthenticated) {
+    updateDataTimestamp('DB갱신 중...');
+    applyFilters();
+    fetchDashboardData();
+  } else {
+    updateDataTimestamp('로그인 필요');
+  }
 });
 
 function initTableColumnResizer() {
@@ -2890,15 +2894,4 @@ function exportFilteredToExcel() {
     XLSX.utils.book_append_sheet(workbook, worksheet, 'SEMS_조회결과');
     XLSX.writeFile(workbook, `SEMS_인허가현황_조회결과_${timestampStr}.xlsx`);
   }
-}
-
-/* Auto Execution on DOM Load */
-if (document.readyState === 'loading') {
-  document.addEventListener('DOMContentLoaded', () => {
-    initEventListeners();
-    fetchDashboardData();
-  });
-} else {
-  initEventListeners();
-  fetchDashboardData();
 }
