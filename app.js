@@ -316,6 +316,7 @@ function resolveBPCompany(regionVal, rawCompanyVal, permitNoVal) {
   const cleanPermitNo = String(permitNoVal || '').trim();
   const cleanSearchPermit = cleanForSearch(cleanPermitNo);
   
+  // 1순위: 대시보드 화면상 사용자 수동 지정 (웹 UI 예외BP 지정)
   const manualMap = getManualBPMap();
   for (const storedPermit in manualMap) {
     if (storedPermit === cleanPermitNo || cleanForSearch(storedPermit) === cleanSearchPermit) {
@@ -325,6 +326,7 @@ function resolveBPCompany(regionVal, rawCompanyVal, permitNoVal) {
     }
   }
 
+  // 2순위: 구글 시트 '수동맵핑' sheet 기준 BP사
   const contractorMap = getContractorMap();
   for (const storedPermit in contractorMap) {
     if (storedPermit === cleanPermitNo || cleanForSearch(storedPermit) === cleanSearchPermit) {
@@ -335,16 +337,13 @@ function resolveBPCompany(regionVal, rawCompanyVal, permitNoVal) {
     }
   }
 
-  const cleanComp = String(rawCompanyVal || '').trim();
-  const isAdministrativeDong = /동$/.test(cleanComp) || /^[가-힣]+[0-9]*동$/.test(cleanComp);
-  
-  let finalComp = cleanComp;
-  if (!cleanComp || isAdministrativeDong || (!cleanComp.includes('㈜') && !cleanComp.includes('텔레콤') && !cleanComp.includes('기술') && !cleanComp.includes('통신') && !cleanComp.includes('오티씨'))) {
-    if (regionVal && DISTRICT_TO_BP[regionVal]) {
-      finalComp = DISTRICT_TO_BP[regionVal];
-    }
+  // 3순위 (수동맵핑 sheet에 별도 명시되어 있지 않은 경우): 자치구별 BP사 계약지역(권역) 기준 맵핑
+  if (regionVal && DISTRICT_TO_BP[regionVal]) {
+    return { company: DISTRICT_TO_BP[regionVal], isManual: false };
   }
-  return { company: finalComp || DISTRICT_TO_BP[regionVal] || '협력사 미정', isManual: false };
+
+  const cleanComp = String(rawCompanyVal || '').trim();
+  return { company: cleanComp || '협력사 미정', isManual: false };
 }
 
 function resolveContractorDetails(permitNoVal) {
@@ -1893,8 +1892,729 @@ function initVersionModal() {
   }
 }
 
+/* Yearly Incomplete Statistics Engine */
+/* Yearly Incomplete Statistics Engine */
+/* Yearly Incomplete Statistics Engine */
+const MAJOR_17_BPS = [
+  // 수남구축팀 (7개사)
+  '㈜부민통신',
+  '엘케이테크넷㈜',
+  '㈜세하통신',
+  '오티씨㈜',
+  '㈜컴피아',
+  '㈜벨에어테크',
+  '㈜유지텔레콤',
+
+  // 수북구축팀 (10개사)
+  '에프투텔레콤㈜',
+  '㈜이화텔레콤',
+  '㈜지앤에스기술',
+  '우일정보기술㈜',
+  '㈜우호텔레콤',
+  '㈜에스포스',
+  '㈜제이케이엔티텔레콤',
+  '㈜뉴젠스',
+  '㈜우주텔레콤',
+  '㈜에스피엔이'
+];
+
+const BP_EXPLICIT_TEAM_MAP = {
+  '㈜부민통신': '수남구축팀',
+  '엘케이테크넷㈜': '수남구축팀',
+  '㈜세하통신': '수남구축팀',
+  '오티씨㈜': '수남구축팀',
+  '㈜컴피아': '수남구축팀',
+  '㈜벨에어테크': '수남구축팀',
+  '벨에어테크': '수남구축팀',
+  '㈜유지텔레콤': '수남구축팀',
+  '유지텔레콤': '수남구축팀',
+
+  '에프투텔레콤㈜': '수북구축팀',
+  '㈜이화텔레콤': '수북구축팀',
+  '㈜지앤에스기술': '수북구축팀',
+  '우일정보기술㈜': '수북구축팀',
+  '㈜우호텔레콤': '수북구축팀',
+  '㈜에스포스': '수북구축팀',
+  '에스포스': '수북구축팀',
+  '㈜제이케이엔티텔레콤': '수북구축팀',
+  '㈜뉴젠스': '수북구축팀',
+  '㈜우주텔레콤': '수북구축팀',
+  '㈜에스피엔이': '수북구축팀'
+};
+
+function getBpTeamName(bp, rowData) {
+  if (BP_EXPLICIT_TEAM_MAP[bp]) return BP_EXPLICIT_TEAM_MAP[bp];
+  const clean = bp.replace(/[㈜\s]/g, '');
+  for (const key in BP_EXPLICIT_TEAM_MAP) {
+    if (key.replace(/[㈜\s]/g, '') === clean) {
+      return BP_EXPLICIT_TEAM_MAP[key];
+    }
+  }
+  if (rowData) {
+    if (rowData.sunamCount > rowData.subukCount) return '수남구축팀';
+    if (rowData.subukCount > rowData.sunamCount) return '수북구축팀';
+  }
+  return '수북구축팀';
+}
+
+function getContractorCategory(contractorVal) {
+  if (!contractorVal) return '미분류';
+  const cStr = String(contractorVal).toUpperCase().replace(/\s+/g, '');
+  if (cStr.includes('SKTNS') || cStr.includes('SK TNS') || cStr.includes('TNS')) return 'SKTNS';
+  if (cStr.includes('PTCE') || cStr.includes('피티씨이')) return 'PTCE';
+  return '미분류';
+}
+
+function extractRecordYear(item) {
+  let targetDate = item.applyDate || item.permitDate;
+  if (targetDate) {
+    const match = String(targetDate).match(/\d{4}/);
+    if (match) {
+      const y = parseInt(match[0], 10);
+      if (!isNaN(y)) {
+        if (y <= 2020) return '2020년 이전';
+        return String(y);
+      }
+    }
+  }
+  return '2020년 이전';
+}
+
+const BP_PRIMARY_TEAM = {
+  '㈜부민통신': '수남구축팀',
+  '엘케이테크넷㈜': '수남구축팀',
+  '㈜세하통신': '수남구축팀',
+  '오티씨㈜': '수남구축팀',
+  '㈜컴피아': '수남구축팀',
+  '㈜벨에어테크': '수남구축팀',
+  '㈜유지텔레콤': '수남구축팀',
+
+  '에프투텔레콤㈜': '수북구축팀',
+  '㈜이화텔레콤': '수북구축팀',
+  '㈜지앤에스기술': '수북구축팀',
+  '우일정보기술㈜': '수북구축팀',
+  '㈜우호텔레콤': '수북구축팀',
+  '㈜에스포스': '수북구축팀',
+  '㈜제이케이엔티텔레콤': '수북구축팀',
+  '㈜뉴젠스': '수북구축팀',
+  '㈜우주텔레콤': '수북구축팀',
+  '㈜에스피엔이': '수북구축팀'
+};
+
+function getContractorCategory(contractorVal) {
+  if (!contractorVal) return '미분류';
+  const cStr = String(contractorVal).toUpperCase().replace(/\s+/g, '');
+  if (cStr.includes('SKTNS') || cStr.includes('SK TNS') || cStr.includes('TNS')) return 'SKTNS';
+  if (cStr.includes('PTCE') || cStr.includes('피티씨이')) return 'PTCE';
+  return '미분류';
+}
+
+function extractRecordYear(item) {
+  let targetDate = item.applyDate || item.permitDate;
+  if (targetDate) {
+    const match = String(targetDate).match(/\d{4}/);
+    if (match) {
+      const y = parseInt(match[0], 10);
+      if (!isNaN(y)) {
+        if (y <= 2020) return '2020년 이전';
+        return String(y);
+      }
+    }
+  }
+  return '2020년 이전';
+}
+
+function computeYearlyIncompleteStats() {
+  const incompleteRecords = rawData.filter(item => {
+    const { category } = classifyRecord(item);
+    if (category === '제외') return false; // 공사취소 제외
+    const normStatus = normalizeString(item.rawStatus || '');
+    if (normStatus.includes('준공완료') || normStatus.includes('준공승인')) return false; // 준공완료 제외
+    return true; // All active/ongoing incomplete items
+  });
+
+  const yearsSet = new Set();
+  incompleteRecords.forEach(item => {
+    const y = extractRecordYear(item);
+    yearsSet.add(y);
+  });
+
+  const sortedYears = Array.from(yearsSet).sort((a, b) => {
+    if (a === '2020년 이전') return -1;
+    if (b === '2020년 이전') return 1;
+    return parseInt(a, 10) - parseInt(b, 10);
+  });
+
+  if (sortedYears.length === 0) sortedYears.push('2020년 이전');
+
+  // District Matrix (Table 1)
+  const districtMatrix = {};
+  ALL_25_DISTRICTS.forEach(d => {
+    districtMatrix[d] = { total: 0 };
+    sortedYears.forEach(y => districtMatrix[d][y] = 0);
+  });
+
+  const buildTeamMatrix = {
+    '수남구축팀': { total: 0 },
+    '수북구축팀': { total: 0 }
+  };
+  sortedYears.forEach(y => {
+    buildTeamMatrix['수남구축팀'][y] = 0;
+    buildTeamMatrix['수북구축팀'][y] = 0;
+  });
+
+  // Contractor Matrix for Tables 2-1, 2-2, 2-3
+  // Structure: contractorMatrix[cCat][bTeam][bp][y]
+  const contractorCats = ['SKTNS', 'PTCE', '미분류'];
+  const buildTeams = ['수남구축팀', '수북구축팀'];
+  const contractorMatrix = {};
+
+  contractorCats.forEach(c => {
+    contractorMatrix[c] = {};
+    buildTeams.forEach(bt => {
+      contractorMatrix[c][bt] = {};
+      MAJOR_17_BPS.forEach(bp => {
+        contractorMatrix[c][bt][bp] = { total: 0 };
+        sortedYears.forEach(y => {
+          contractorMatrix[c][bt][bp][y] = 0;
+        });
+      });
+    });
+  });
+
+  // Populate counts based on permit district build team
+  incompleteRecords.forEach(item => {
+    const y = extractRecordYear(item);
+    const validYear = sortedYears.includes(y) ? y : sortedYears[sortedYears.length - 1];
+    const dist = item.region;
+    const bTeam = getBuildTeam(dist); // '수남구축팀' or '수북구축팀' based on permit district
+    const company = item.company;
+    const cCat = getContractorCategory(item.contractor); // 'SKTNS', 'PTCE', or '미분류'
+
+    // Build Team Matrix
+    if (buildTeamMatrix[bTeam]) {
+      buildTeamMatrix[bTeam][validYear] = (buildTeamMatrix[bTeam][validYear] || 0) + 1;
+      buildTeamMatrix[bTeam].total++;
+    }
+
+    // District Matrix
+    if (districtMatrix[dist]) {
+      districtMatrix[dist][validYear] = (districtMatrix[dist][validYear] || 0) + 1;
+      districtMatrix[dist].total++;
+    }
+
+    // BP Company Matching & Typo Resilience
+    let matchedBP = null;
+    const companyStr = String(company || '').trim();
+    const cleanCompany = companyStr.replace(/[㈜\s]/g, '');
+
+    for (const b of MAJOR_17_BPS) {
+      const cleanB = b.replace(/[㈜\s]/g, '');
+      if (cleanCompany === cleanB || cleanCompany.includes(cleanB) || cleanB.includes(cleanCompany)) {
+        matchedBP = b;
+        break;
+      }
+      if ((b.includes('벨에어') || b.includes('벨어어')) && (cleanCompany.includes('벨에어') || cleanCompany.includes('벨이어') || cleanCompany.includes('벨아이') || cleanCompany.includes('벨어어'))) {
+        matchedBP = b;
+        break;
+      }
+      if (b.includes('제이케이엔티') && cleanCompany.includes('제이케이엔티')) {
+        matchedBP = b;
+        break;
+      }
+      if (b.includes('에스피엔이') && (cleanCompany.includes('에스피엔이') || cleanCompany.includes('에스피엔'))) {
+        matchedBP = b;
+        break;
+      }
+    }
+
+    if (matchedBP) {
+      if (!contractorMatrix[cCat][bTeam][matchedBP]) {
+        contractorMatrix[cCat][bTeam][matchedBP] = { total: 0 };
+        sortedYears.forEach(yr => contractorMatrix[cCat][bTeam][matchedBP][yr] = 0);
+      }
+
+      contractorMatrix[cCat][bTeam][matchedBP][validYear] = (contractorMatrix[cCat][bTeam][matchedBP][validYear] || 0) + 1;
+      contractorMatrix[cCat][bTeam][matchedBP].total++;
+    }
+  });
+
+  return {
+    years: sortedYears,
+    districtMatrix,
+    buildTeamMatrix,
+    contractorMatrix,
+    totalCount: incompleteRecords.length
+  };
+}
+
+function openStatsModal(e) {
+  if (e) {
+    if (e.stopPropagation) e.stopPropagation();
+    if (e.preventDefault) e.preventDefault();
+  }
+  const modal = document.getElementById('statsModalOverlay');
+  if (modal) {
+    modal.style.display = 'flex';
+    modal.style.zIndex = '99990';
+    renderYearlyStatsModal();
+    if (window.lucide && window.lucide.createIcons) {
+      try { window.lucide.createIcons(); } catch(err) {}
+    }
+  }
+  return false;
+}
+
+function closeStatsModal(e) {
+  if (e) {
+    if (e.stopPropagation) e.stopPropagation();
+    if (e.preventDefault) e.preventDefault();
+  }
+  const modal = document.getElementById('statsModalOverlay');
+  if (modal) {
+    modal.style.display = 'none';
+  }
+  return false;
+}
+
+window.openStatsModal = openStatsModal;
+window.closeStatsModal = closeStatsModal;
+
+function renderContractorTableHTML(cCat, titleTag, title, accentColor, bgHeader, stats) {
+  const { years, contractorMatrix } = stats;
+  const matrixData = contractorMatrix[cCat] || {};
+
+  const sunamData = matrixData['수남구축팀'] || {};
+  const subukData = matrixData['수북구축팀'] || {};
+
+  // Sunam BP list: only BPs with total > 0 in Sunam
+  const sunamBPs = Object.keys(sunamData).filter(bp => sunamData[bp] && sunamData[bp].total > 0);
+  sunamBPs.sort((a, b) => {
+    const idxA = MAJOR_17_BPS.indexOf(a);
+    const idxB = MAJOR_17_BPS.indexOf(b);
+    if (idxA !== -1 && idxB !== -1) return idxA - idxB;
+    if (idxA !== -1) return -1;
+    if (idxB !== -1) return 1;
+    return a.localeCompare(b);
+  });
+
+  // Subuk BP list: only BPs with total > 0 in Subuk
+  const subukBPs = Object.keys(subukData).filter(bp => subukData[bp] && subukData[bp].total > 0);
+  subukBPs.sort((a, b) => {
+    const idxA = MAJOR_17_BPS.indexOf(a);
+    const idxB = MAJOR_17_BPS.indexOf(b);
+    if (idxA !== -1 && idxB !== -1) return idxA - idxB;
+    if (idxA !== -1) return -1;
+    if (idxB !== -1) return 1;
+    return a.localeCompare(b);
+  });
+
+  // Compute Sunam Subtotals
+  const sunamSubtotal = { total: 0 };
+  years.forEach(y => sunamSubtotal[y] = 0);
+  sunamBPs.forEach(bp => {
+    const d = sunamData[bp] || { total: 0 };
+    sunamSubtotal.total += (d.total || 0);
+    years.forEach(y => sunamSubtotal[y] += (d[y] || 0));
+  });
+
+  // Compute Subuk Subtotals
+  const subukSubtotal = { total: 0 };
+  years.forEach(y => subukSubtotal[y] = 0);
+  subukBPs.forEach(bp => {
+    const d = subukData[bp] || { total: 0 };
+    subukSubtotal.total += (d.total || 0);
+    years.forEach(y => subukSubtotal[y] += (d[y] || 0));
+  });
+
+  const grandTotal = sunamSubtotal.total + subukSubtotal.total;
+
+  return `
+    <div class="stats-card-box">
+      <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 10px;">
+        <h4 style="font-size: 0.95rem; font-weight: 800; color: #0f172a; display: flex; align-items: center; gap: 6px;">
+          <i data-lucide="building-2" style="color: ${accentColor}; width: 16px; height: 16px;"></i>
+          [${titleTag}] ${title} 미완료(진행중) 현황
+        </h4>
+        <span style="font-size: 0.74rem; color: #64748b; font-weight: 600;">※ 인허가 지자체(구청) 권역 기준 구축팀 구분</span>
+      </div>
+
+      <div style="overflow-x: auto;">
+        <table class="stats-matrix-table">
+          <thead>
+            <tr>
+              <th style="width: 45px;">No</th>
+              <th style="width: 110px;">인허가 구축팀</th>
+              <th style="width: 160px;">BP사명</th>
+              ${years.map(y => `<th>${y === '2020년 이전' ? '2020년 이전' : y + '년'}</th>`).join('')}
+              <th style="background: ${bgHeader}; color: ${accentColor};">미완료 합계</th>
+            </tr>
+          </thead>
+          <tbody>
+            <!-- 수남구축팀 관할 BP사 Header & Rows -->
+            <tr class="group-header-row">
+              <td colspan="${years.length + 4}" style="background: #eff6ff; color: #1d4ed8;">
+                <span class="badge-sunam">수남구축팀</span> 관할 지자체 인허가 BP사 (${sunamBPs.length}개사)
+              </td>
+            </tr>
+            ${sunamBPs.length === 0 ? `
+              <tr>
+                <td colspan="${years.length + 4}" style="text-align: center; color: #94a3b8; padding: 10px; font-size: 0.82rem;">
+                  미완료(진행중) 건이 있는 BP사가 없습니다.
+                </td>
+              </tr>
+            ` : sunamBPs.map((bp, idx) => {
+              const rowData = sunamData[bp] || { total: 0 };
+              return `
+                <tr>
+                  <td style="text-align: center; color: #64748b;">${idx + 1}</td>
+                  <td style="text-align: center;"><span class="badge-sunam">수남구축팀</span></td>
+                  <td style="text-align: left; font-weight: 700; color: #0f172a; padding-left: 10px;">${bp}</td>
+                  ${years.map(y => {
+                    const val = rowData[y] || 0;
+                    return `<td class="${val > 0 ? 'stats-val-active' : 'stats-val-zero'}">${val.toLocaleString()}</td>`;
+                  }).join('')}
+                  <td style="font-weight: 800; background: #eff6ff; color: #1e40af;">${(rowData.total || 0).toLocaleString()}</td>
+                </tr>
+              `;
+            }).join('')}
+            <!-- 수남 소계 -->
+            <tr class="subtotal-row" style="background: #eff6ff;">
+              <td colspan="3" style="text-align: center; font-weight: 800; color: #1d4ed8;">수남구축팀 ${cCat} 소계</td>
+              ${years.map(y => `<td style="font-weight: 800; color: #1d4ed8;">${(sunamSubtotal[y] || 0).toLocaleString()}</td>`).join('')}
+              <td style="font-weight: 900; color: #1d4ed8; background: #dbeafe;">${sunamSubtotal.total.toLocaleString()}</td>
+            </tr>
+
+            <!-- 수북구축팀 관할 BP사 Header & Rows -->
+            <tr class="group-header-row">
+              <td colspan="${years.length + 4}" style="background: #faf5ff; color: #7e22ce;">
+                <span class="badge-subuk">수북구축팀</span> 관할 지자체 인허가 BP사 (${subukBPs.length}개사)
+              </td>
+            </tr>
+            ${subukBPs.length === 0 ? `
+              <tr>
+                <td colspan="${years.length + 4}" style="text-align: center; color: #94a3b8; padding: 10px; font-size: 0.82rem;">
+                  미완료(진행중) 건이 있는 BP사가 없습니다.
+                </td>
+              </tr>
+            ` : subukBPs.map((bp, idx) => {
+              const rowData = subukData[bp] || { total: 0 };
+              return `
+                <tr>
+                  <td style="text-align: center; color: #64748b;">${sunamBPs.length + idx + 1}</td>
+                  <td style="text-align: center;"><span class="badge-subuk">수북구축팀</span></td>
+                  <td style="text-align: left; font-weight: 700; color: #0f172a; padding-left: 10px;">${bp}</td>
+                  ${years.map(y => {
+                    const val = rowData[y] || 0;
+                    return `<td class="${val > 0 ? 'stats-val-active' : 'stats-val-zero'}">${val.toLocaleString()}</td>`;
+                  }).join('')}
+                  <td style="font-weight: 800; background: #faf5ff; color: #6b21a8;">${(rowData.total || 0).toLocaleString()}</td>
+                </tr>
+              `;
+            }).join('')}
+            <!-- 수북 소계 -->
+            <tr class="subtotal-row" style="background: #faf5ff;">
+              <td colspan="3" style="text-align: center; font-weight: 800; color: #7e22ce;">수북구축팀 ${cCat} 소계</td>
+              ${years.map(y => `<td style="font-weight: 800; color: #7e22ce;">${(subukSubtotal[y] || 0).toLocaleString()}</td>`).join('')}
+              <td style="font-weight: 900; color: #7e22ce; background: #f3e8ff;">${subukSubtotal.total.toLocaleString()}</td>
+            </tr>
+
+            <!-- Grand Total Row -->
+            <tr class="grandtotal-row" style="background: #f8fafc;">
+              <td colspan="3" style="text-align: center; font-weight: 900;">${cCat} 도급 전체 총합</td>
+              ${years.map(y => {
+                const yearTotal = (sunamSubtotal[y] || 0) + (subukSubtotal[y] || 0);
+                return `<td style="font-weight: 900;">${yearTotal.toLocaleString()}</td>`;
+              }).join('')}
+              <td style="font-weight: 900; background: #e2e8f0; color: #0f172a;">${grandTotal.toLocaleString()}</td>
+            </tr>
+          </tbody>
+        </table>
+      </div>
+    </div>
+  `;
+}
+
+function renderYearlyStatsModal() {
+  const content = document.getElementById('statsModalBodyContent');
+  if (!content) return;
+
+  const stats = computeYearlyIncompleteStats();
+  const { years, districtMatrix, totalCount } = stats;
+
+  const sunamDistricts = SUNAM_DISTRICTS.filter(d => ALL_25_DISTRICTS.includes(d));
+  const subukDistricts = ALL_25_DISTRICTS.filter(d => !SUNAM_DISTRICTS.includes(d));
+
+  // Compute District Subtotals
+  const sunamSubtotals = { total: 0 };
+  const subukSubtotals = { total: 0 };
+  years.forEach(y => {
+    sunamSubtotals[y] = 0;
+    subukSubtotals[y] = 0;
+    sunamDistricts.forEach(d => { sunamSubtotals[y] += (districtMatrix[d][y] || 0); });
+    subukDistricts.forEach(d => { subukSubtotals[y] += (districtMatrix[d][y] || 0); });
+    sunamSubtotals.total += sunamSubtotals[y];
+    subukSubtotals.total += subukSubtotals[y];
+  });
+
+  let html = `
+    <!-- Top KPI Cards -->
+    <div style="display: grid; grid-template-columns: 1fr 1fr 1fr; gap: 12px;">
+      <div class="stats-card-box" style="border-left: 4px solid #2563eb; background: #eff6ff;">
+        <div style="font-size: 0.78rem; font-weight: 700; color: #1d4ed8; display: flex; align-items: center; gap: 6px;">
+          <span class="badge-sunam">수남구축팀</span>
+          <span>11개 자치구 미완료 총계</span>
+        </div>
+        <div style="font-size: 1.5rem; font-weight: 900; color: #1e40af; margin-top: 4px;">
+          ${sunamSubtotals.total.toLocaleString()}<span style="font-size: 0.9rem; font-weight: 700; margin-left: 2px;">건</span>
+        </div>
+      </div>
+
+      <div class="stats-card-box" style="border-left: 4px solid #7c3aed; background: #faf5ff;">
+        <div style="font-size: 0.78rem; font-weight: 700; color: #7e22ce; display: flex; align-items: center; gap: 6px;">
+          <span class="badge-subuk">수북구축팀</span>
+          <span>14개 자치구 미완료 총계</span>
+        </div>
+        <div style="font-size: 1.5rem; font-weight: 900; color: #6b21a8; margin-top: 4px;">
+          ${subukSubtotals.total.toLocaleString()}<span style="font-size: 0.9rem; font-weight: 700; margin-left: 2px;">건</span>
+        </div>
+      </div>
+
+      <div class="stats-card-box" style="border-left: 4px solid #059669; background: #f0fdf4;">
+        <div style="font-size: 0.78rem; font-weight: 700; color: #047857; display: flex; align-items: center; gap: 6px;">
+          <i data-lucide="pie-chart" style="width: 14px; height: 14px; color: #059669;"></i>
+          <span>전체 25개 자치구 미완료 총계</span>
+        </div>
+        <div style="font-size: 1.5rem; font-weight: 900; color: #065f46; margin-top: 4px;">
+          ${totalCount.toLocaleString()}<span style="font-size: 0.9rem; font-weight: 700; margin-left: 2px;">건</span>
+        </div>
+      </div>
+    </div>
+
+    <!-- Table 1: 연도별 구축팀 & 25개 자치구 미완료 현황 -->
+    <div class="stats-card-box">
+      <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 10px;">
+        <h4 style="font-size: 0.95rem; font-weight: 800; color: #0f172a; display: flex; align-items: center; gap: 6px;">
+          <i data-lucide="map-pin" style="color: #2563eb; width: 16px; height: 16px;"></i>
+          [표 1] 연도별 25개 자치구 미완료(진행중) 현황 (구축팀 구분)
+        </h4>
+        <span style="font-size: 0.74rem; color: #64748b; font-weight: 600;">※ 준공완료 및 취소건 제외한 진행중 건수</span>
+      </div>
+
+      <div style="overflow-x: auto;">
+        <table class="stats-matrix-table">
+          <thead>
+            <tr>
+              <th style="width: 110px;">구축팀</th>
+              <th style="width: 110px;">자치구</th>
+              ${years.map(y => `<th>${y === '2020년 이전' ? '2020년 이전' : y + '년'}</th>`).join('')}
+              <th style="background: #e0f2fe; color: #0369a1;">미완료 합계</th>
+            </tr>
+          </thead>
+          <tbody>
+            <!-- 수남구축팀 Header & Rows -->
+            <tr class="group-header-row">
+              <td colspan="${years.length + 3}" style="background: #eff6ff; color: #1d4ed8;">
+                <span class="badge-sunam">수남구축팀</span> (11개 관할 자치구)
+              </td>
+            </tr>
+            ${sunamDistricts.map((d, idx) => `
+              <tr>
+                ${idx === 0 ? `<td rowspan="${sunamDistricts.length}" style="text-align: center; vertical-align: middle; background: #ffffff; font-weight: 700; color: #1d4ed8;">수남구축팀</td>` : ''}
+                <td style="text-align: center; font-weight: 700; background: #ffffff;">${d}</td>
+                ${years.map(y => {
+                  const val = districtMatrix[d][y] || 0;
+                  return `<td class="${val > 0 ? 'stats-val-active' : 'stats-val-zero'}">${val.toLocaleString()}</td>`;
+                }).join('')}
+                <td style="font-weight: 800; background: #f0fdf4; color: #047857;">${(districtMatrix[d].total || 0).toLocaleString()}</td>
+              </tr>
+            `).join('')}
+            <!-- 수남 소계 -->
+            <tr class="subtotal-row" style="background: #eff6ff;">
+              <td colspan="2" style="text-align: center; font-weight: 800; color: #1d4ed8;">수남구축팀 소계</td>
+              ${years.map(y => `<td style="font-weight: 800; color: #1d4ed8;">${(sunamSubtotals[y] || 0).toLocaleString()}</td>`).join('')}
+              <td style="font-weight: 900; color: #1d4ed8; background: #dbeafe;">${sunamSubtotals.total.toLocaleString()}</td>
+            </tr>
+
+            <!-- 수북구축팀 Header & Rows -->
+            <tr class="group-header-row">
+              <td colspan="${years.length + 3}" style="background: #faf5ff; color: #7e22ce;">
+                <span class="badge-subuk">수북구축팀</span> (14개 관할 자치구)
+              </td>
+            </tr>
+            ${subukDistricts.map((d, idx) => `
+              <tr>
+                ${idx === 0 ? `<td rowspan="${subukDistricts.length}" style="text-align: center; vertical-align: middle; background: #ffffff; font-weight: 700; color: #7e22ce;">수북구축팀</td>` : ''}
+                <td style="text-align: center; font-weight: 700; background: #ffffff;">${d}</td>
+                ${years.map(y => {
+                  const val = districtMatrix[d][y] || 0;
+                  return `<td class="${val > 0 ? 'stats-val-active' : 'stats-val-zero'}">${val.toLocaleString()}</td>`;
+                }).join('')}
+                <td style="font-weight: 800; background: #f0fdf4; color: #047857;">${(districtMatrix[d].total || 0).toLocaleString()}</td>
+              </tr>
+            `).join('')}
+            <!-- 수북 소계 -->
+            <tr class="subtotal-row" style="background: #faf5ff;">
+              <td colspan="2" style="text-align: center; font-weight: 800; color: #7e22ce;">수북구축팀 소계</td>
+              ${years.map(y => `<td style="font-weight: 800; color: #7e22ce;">${(subukSubtotals[y] || 0).toLocaleString()}</td>`).join('')}
+              <td style="font-weight: 900; color: #7e22ce; background: #f3e8ff;">${subukSubtotals.total.toLocaleString()}</td>
+            </tr>
+
+            <!-- Grand Total Row -->
+            <tr class="grandtotal-row">
+              <td colspan="2" style="text-align: center; font-weight: 900;">전체 자치구 총합</td>
+              ${years.map(y => {
+                const yearTotal = (sunamSubtotals[y] || 0) + (subukSubtotals[y] || 0);
+                return `<td style="font-weight: 900;">${yearTotal.toLocaleString()}</td>`;
+              }).join('')}
+              <td style="font-weight: 900; background: #bfdbfe; color: #1e40af;">${totalCount.toLocaleString()}</td>
+            </tr>
+          </tbody>
+        </table>
+      </div>
+    </div>
+  `;
+
+  // Render Table 2-1 (SKTNS), Table 2-2 (PTCE), Table 2-3 (미분류)
+  html += renderContractorTableHTML('SKTNS', '표 2-1', 'SKTNS 도급 연도별/BP사별', '#2563eb', '#dbeafe', stats);
+  html += renderContractorTableHTML('PTCE', '표 2-2', 'PTCE 도급 연도별/BP사별', '#059669', '#d1fae5', stats);
+  html += renderContractorTableHTML('미분류', '표 2-3', '미분류 도급 연도별/BP사별', '#64748b', '#e2e8f0', stats);
+
+  content.innerHTML = html;
+}
+
+function exportYearlyStatsToExcel() {
+  const stats = computeYearlyIncompleteStats();
+  const { years, districtMatrix, contractorMatrix } = stats;
+
+  const timestampStr = getFileTimestampString();
+
+  // Sheet 1: District Matrix (25개 자치구)
+  const sunamDistricts = SUNAM_DISTRICTS.filter(d => ALL_25_DISTRICTS.includes(d));
+  const subukDistricts = ALL_25_DISTRICTS.filter(d => !SUNAM_DISTRICTS.includes(d));
+
+  const districtRows = [];
+  
+  sunamDistricts.forEach(d => {
+    const rowObj = { '구축팀': '수남구축팀', '자치구': d };
+    years.forEach(y => {
+      const headerKey = y === '2020년 이전' ? '2020년 이전' : `${y}년`;
+      rowObj[headerKey] = districtMatrix[d][y] || 0;
+    });
+    rowObj['미완료 합계'] = districtMatrix[d].total || 0;
+    districtRows.push(rowObj);
+  });
+
+  subukDistricts.forEach(d => {
+    const rowObj = { '구축팀': '수북구축팀', '자치구': d };
+    years.forEach(y => {
+      const headerKey = y === '2020년 이전' ? '2020년 이전' : `${y}년`;
+      rowObj[headerKey] = districtMatrix[d][y] || 0;
+    });
+    rowObj['미완료 합계'] = districtMatrix[d].total || 0;
+    districtRows.push(rowObj);
+  });
+
+  const workbook = XLSX.utils.book_new();
+
+  // Add Sheet 1
+  const ws1 = XLSX.utils.json_to_sheet(districtRows);
+  XLSX.utils.book_append_sheet(workbook, ws1, '구축팀_자치구_미완료_통계');
+
+  // Add Sheet 2, 3, 4 for SKTNS, PTCE, 미분류
+  const contractorCats = [
+    { cat: 'SKTNS', sheetName: 'SKTNS_도급_BP사_통계' },
+    { cat: 'PTCE', sheetName: 'PTCE_도급_BP사_통계' },
+    { cat: '미분류', sheetName: '미분류_도급_BP사_통계' }
+  ];
+
+  contractorCats.forEach(({ cat, sheetName }) => {
+    const matrixData = contractorMatrix[cat] || {};
+    const sunamData = matrixData['수남구축팀'] || {};
+    const subukData = matrixData['수북구축팀'] || {};
+
+    const sunamBPs = Object.keys(sunamData).filter(bp => sunamData[bp] && sunamData[bp].total > 0);
+    sunamBPs.sort((a, b) => {
+      const idxA = MAJOR_17_BPS.indexOf(a);
+      const idxB = MAJOR_17_BPS.indexOf(b);
+      if (idxA !== -1 && idxB !== -1) return idxA - idxB;
+      if (idxA !== -1) return -1;
+      if (idxB !== -1) return 1;
+      return a.localeCompare(b);
+    });
+
+    const subukBPs = Object.keys(subukData).filter(bp => subukData[bp] && subukData[bp].total > 0);
+    subukBPs.sort((a, b) => {
+      const idxA = MAJOR_17_BPS.indexOf(a);
+      const idxB = MAJOR_17_BPS.indexOf(b);
+      if (idxA !== -1 && idxB !== -1) return idxA - idxB;
+      if (idxA !== -1) return -1;
+      if (idxB !== -1) return 1;
+      return a.localeCompare(b);
+    });
+
+    const rows = [];
+    let counter = 1;
+
+    sunamBPs.forEach(bp => {
+      const d = sunamData[bp] || { total: 0 };
+      const rowObj = {
+        'No': counter++,
+        '인허가 구축팀': '수남구축팀',
+        'BP사명': bp
+      };
+      years.forEach(y => {
+        const headerKey = y === '2020년 이전' ? '2020년 이전' : `${y}년`;
+        rowObj[headerKey] = d[y] || 0;
+      });
+      rowObj['미완료 합계'] = d.total || 0;
+      rows.push(rowObj);
+    });
+
+    subukBPs.forEach(bp => {
+      const d = subukData[bp] || { total: 0 };
+      const rowObj = {
+        'No': counter++,
+        '인허가 구축팀': '수북구축팀',
+        'BP사명': bp
+      };
+      years.forEach(y => {
+        const headerKey = y === '2020년 이전' ? '2020년 이전' : `${y}년`;
+        rowObj[headerKey] = d[y] || 0;
+      });
+      rowObj['미완료 합계'] = d.total || 0;
+      rows.push(rowObj);
+    });
+
+    const ws = XLSX.utils.json_to_sheet(rows);
+    XLSX.utils.book_append_sheet(workbook, ws, sheetName);
+  });
+
+  XLSX.writeFile(workbook, `SEMS_연도별_미완료_통계_리포트_${timestampStr}.xlsx`);
+}
+
 function initEventListeners() {
   initVersionModal();
+
+  const btnStats1 = document.getElementById('btnOpenStatsModal');
+  if (btnStats1) btnStats1.addEventListener('click', openStatsModal);
+
+  const btnStats2 = document.getElementById('btnOpenStatsModalSub');
+  if (btnStats2) btnStats2.addEventListener('click', openStatsModal);
+
+  const btnCloseStats = document.getElementById('btnCloseStatsModal');
+  if (btnCloseStats) btnCloseStats.addEventListener('click', closeStatsModal);
+
+  const modalOverlay = document.getElementById('statsModalOverlay');
+  if (modalOverlay) {
+    modalOverlay.addEventListener('click', (e) => {
+      if (e.target === modalOverlay) closeStatsModal();
+    });
+  }
+
+  const btnExportStats = document.getElementById('btnExportStatsExcel');
+  if (btnExportStats) btnExportStats.addEventListener('click', exportYearlyStatsToExcel);
+
   const btnRefreshData = document.getElementById('btnRefreshData');
   if (btnRefreshData) {
     btnRefreshData.addEventListener('click', fetchDashboardData);
