@@ -2417,8 +2417,8 @@ function renderYearlyStatsModal() {
 
   let html = `
     <!-- Top KPI Cards -->
-    <div style="display: grid; grid-template-columns: 1fr 1fr 1fr; gap: 12px;">
-      <div class="stats-card-box" style="border-left: 4px solid #2563eb; background: #eff6ff;">
+    <div style="display: grid; grid-template-columns: 1fr 1fr 1fr; gap: 12px; margin-bottom: 22px;">
+      <div class="stats-kpi-card" style="border-left: 4px solid #2563eb; background: #eff6ff;">
         <div style="font-size: 0.78rem; font-weight: 700; color: #1d4ed8; display: flex; align-items: center; gap: 6px;">
           <span class="badge-sunam">수남구축팀</span>
           <span>11개 자치구 미완료 총계</span>
@@ -2428,7 +2428,7 @@ function renderYearlyStatsModal() {
         </div>
       </div>
 
-      <div class="stats-card-box" style="border-left: 4px solid #7c3aed; background: #faf5ff;">
+      <div class="stats-kpi-card" style="border-left: 4px solid #7c3aed; background: #faf5ff;">
         <div style="font-size: 0.78rem; font-weight: 700; color: #7e22ce; display: flex; align-items: center; gap: 6px;">
           <span class="badge-subuk">수북구축팀</span>
           <span>14개 자치구 미완료 총계</span>
@@ -2438,7 +2438,7 @@ function renderYearlyStatsModal() {
         </div>
       </div>
 
-      <div class="stats-card-box" style="border-left: 4px solid #059669; background: #f0fdf4;">
+      <div class="stats-kpi-card" style="border-left: 4px solid #059669; background: #f0fdf4;">
         <div style="font-size: 0.78rem; font-weight: 700; color: #047857; display: flex; align-items: center; gap: 6px;">
           <i data-lucide="pie-chart" style="width: 14px; height: 14px; color: #059669;"></i>
           <span>전체 25개 자치구 미완료 총계</span>
@@ -2543,44 +2543,74 @@ function renderYearlyStatsModal() {
 
 function exportYearlyStatsToExcel() {
   const stats = computeYearlyIncompleteStats();
-  const { years, districtMatrix, contractorMatrix } = stats;
+  const { years, districtMatrix, contractorMatrix, totalCount } = stats;
 
   const timestampStr = getFileTimestampString();
+  const workbook = XLSX.utils.book_new();
 
-  // Sheet 1: District Matrix (25개 자치구)
+  const getYearHeader = (y) => (y === '2020년 이전' ? '2020년 이전' : `${y}년`);
+
+  // Sheet 1: 구축팀 & 25개 자치구 미완료 통계 (리포트 표 1 포맷과 동일한 소계/합계 포함)
   const sunamDistricts = SUNAM_DISTRICTS.filter(d => ALL_25_DISTRICTS.includes(d));
   const subukDistricts = ALL_25_DISTRICTS.filter(d => !SUNAM_DISTRICTS.includes(d));
 
-  const districtRows = [];
+  const sunamSubtotals = { total: 0 };
+  const subukSubtotals = { total: 0 };
+  years.forEach(y => {
+    sunamSubtotals[y] = 0;
+    subukSubtotals[y] = 0;
+    sunamDistricts.forEach(d => { sunamSubtotals[y] += (districtMatrix[d][y] || 0); });
+    subukDistricts.forEach(d => { subukSubtotals[y] += (districtMatrix[d][y] || 0); });
+    sunamSubtotals.total += sunamSubtotals[y];
+    subukSubtotals.total += subukSubtotals[y];
+  });
+
+  const districtExportRows = [];
   
+  // 수남구축팀 자치구 데이터
   sunamDistricts.forEach(d => {
     const rowObj = { '구축팀': '수남구축팀', '자치구': d };
     years.forEach(y => {
-      const headerKey = y === '2020년 이전' ? '2020년 이전' : `${y}년`;
-      rowObj[headerKey] = districtMatrix[d][y] || 0;
+      rowObj[getYearHeader(y)] = districtMatrix[d][y] || 0;
     });
     rowObj['미완료 합계'] = districtMatrix[d].total || 0;
-    districtRows.push(rowObj);
+    districtExportRows.push(rowObj);
   });
 
+  // 수남구축팀 소계 행
+  const sunamSubRow = { '구축팀': '수남구축팀 소계', '자치구': '(11개 자치구)' };
+  years.forEach(y => { sunamSubRow[getYearHeader(y)] = sunamSubtotals[y]; });
+  sunamSubRow['미완료 합계'] = sunamSubtotals.total;
+  districtExportRows.push(sunamSubRow);
+
+  // 수북구축팀 자치구 데이터
   subukDistricts.forEach(d => {
     const rowObj = { '구축팀': '수북구축팀', '자치구': d };
     years.forEach(y => {
-      const headerKey = y === '2020년 이전' ? '2020년 이전' : `${y}년`;
-      rowObj[headerKey] = districtMatrix[d][y] || 0;
+      rowObj[getYearHeader(y)] = districtMatrix[d][y] || 0;
     });
     rowObj['미완료 합계'] = districtMatrix[d].total || 0;
-    districtRows.push(rowObj);
+    districtExportRows.push(rowObj);
   });
 
-  const workbook = XLSX.utils.book_new();
+  // 수북구축팀 소계 행
+  const subukSubRow = { '구축팀': '수북구축팀 소계', '자치구': '(14개 자치구)' };
+  years.forEach(y => { subukSubRow[getYearHeader(y)] = subukSubtotals[y]; });
+  subukSubRow['미완료 합계'] = subukSubtotals.total;
+  districtExportRows.push(subukSubRow);
+
+  // 전체 자치구 총합 행
+  const grandTotalRow = { '구축팀': '전체 자치구 총합', '자치구': '(25개 자치구)' };
+  years.forEach(y => { grandTotalRow[getYearHeader(y)] = (sunamSubtotals[y] || 0) + (subukSubtotals[y] || 0); });
+  grandTotalRow['미완료 합계'] = totalCount;
+  districtExportRows.push(grandTotalRow);
 
   // Add Sheet 1
-  const ws1 = XLSX.utils.json_to_sheet(districtRows);
-  autoFitWorksheetColumns(ws1, districtRows);
+  const ws1 = XLSX.utils.json_to_sheet(districtExportRows);
+  autoFitWorksheetColumns(ws1, districtExportRows);
   XLSX.utils.book_append_sheet(workbook, ws1, '구축팀_자치구_미완료_통계');
 
-  // Add Sheet 2, 3, 4 for SKTNS, PTCE, 미분류
+  // Sheet 2, 3, 4: SKTNS, PTCE, 미분류 도급별 BP사 통계 (리포트 표 2-1, 2-2, 2-3 포맷 동일)
   const contractorCats = [
     { cat: 'SKTNS', sheetName: 'SKTNS_도급_BP사_통계' },
     { cat: 'PTCE', sheetName: 'PTCE_도급_BP사_통계' },
@@ -2615,6 +2645,10 @@ function exportYearlyStatsToExcel() {
     const rows = [];
     let counter = 1;
 
+    // 수남 BP 행 및 소계
+    const sunamSub = { total: 0 };
+    years.forEach(y => sunamSub[y] = 0);
+
     sunamBPs.forEach(bp => {
       const d = sunamData[bp] || { total: 0 };
       const rowObj = {
@@ -2623,12 +2657,27 @@ function exportYearlyStatsToExcel() {
         'BP사명': bp
       };
       years.forEach(y => {
-        const headerKey = y === '2020년 이전' ? '2020년 이전' : `${y}년`;
-        rowObj[headerKey] = d[y] || 0;
+        const val = d[y] || 0;
+        rowObj[getYearHeader(y)] = val;
+        sunamSub[y] += val;
       });
       rowObj['미완료 합계'] = d.total || 0;
+      sunamSub.total += (d.total || 0);
       rows.push(rowObj);
     });
+
+    const sunamSubRow = {
+      'No': '-',
+      '인허가 구축팀': `수남구축팀 ${cat} 소계`,
+      'BP사명': `(${sunamBPs.length}개사)`
+    };
+    years.forEach(y => { sunamSubRow[getYearHeader(y)] = sunamSub[y]; });
+    sunamSubRow['미완료 합계'] = sunamSub.total;
+    rows.push(sunamSubRow);
+
+    // 수북 BP 행 및 소계
+    const subukSub = { total: 0 };
+    years.forEach(y => subukSub[y] = 0);
 
     subukBPs.forEach(bp => {
       const d = subukData[bp] || { total: 0 };
@@ -2638,12 +2687,33 @@ function exportYearlyStatsToExcel() {
         'BP사명': bp
       };
       years.forEach(y => {
-        const headerKey = y === '2020년 이전' ? '2020년 이전' : `${y}년`;
-        rowObj[headerKey] = d[y] || 0;
+        const val = d[y] || 0;
+        rowObj[getYearHeader(y)] = val;
+        subukSub[y] += val;
       });
       rowObj['미완료 합계'] = d.total || 0;
+      subukSub.total += (d.total || 0);
       rows.push(rowObj);
     });
+
+    const subukSubRow = {
+      'No': '-',
+      '인허가 구축팀': `수북구축팀 ${cat} 소계`,
+      'BP사명': `(${subukBPs.length}개사)`
+    };
+    years.forEach(y => { subukSubRow[getYearHeader(y)] = subukSub[y]; });
+    subukSubRow['미완료 합계'] = subukSub.total;
+    rows.push(subukSubRow);
+
+    // 도급 전체 총합 행
+    const catTotalRow = {
+      'No': '-',
+      '인허가 구축팀': `${cat} 도급 전체 총합`,
+      'BP사명': `(전체 ${sunamBPs.length + subukBPs.length}개사)`
+    };
+    years.forEach(y => { catTotalRow[getYearHeader(y)] = (sunamSub[y] || 0) + (subukSub[y] || 0); });
+    catTotalRow['미완료 합계'] = sunamSub.total + subukSub.total;
+    rows.push(catTotalRow);
 
     const ws = XLSX.utils.json_to_sheet(rows);
     autoFitWorksheetColumns(ws, rows);

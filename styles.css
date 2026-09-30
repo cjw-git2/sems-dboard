@@ -648,6 +648,93 @@ tbody tr:hover {
   background: #2563eb;
 }
 
+/* Stats Modal Matrix Table & Card Box Custom Styling */
+.stats-kpi-card {
+  background: #ffffff;
+  border: 1px solid #cbd5e1;
+  border-radius: 12px;
+  padding: 14px 18px;
+  margin-top: 0 !important;
+  box-shadow: 0 2px 5px rgba(15, 23, 42, 0.04);
+  display: flex;
+  flex-direction: column;
+  justify-content: center;
+}
+
+.stats-card-box {
+  background: #ffffff;
+  border: 1px solid #cbd5e1;
+  border-radius: 12px;
+  padding: 18px 20px;
+  margin-top: 22px;
+  box-shadow: 0 2px 5px rgba(15, 23, 42, 0.04);
+}
+
+.stats-card-box:first-of-type {
+  margin-top: 0;
+}
+
+.stats-matrix-table {
+  width: 100%;
+  border-collapse: collapse;
+  border: 1.5px solid #64748b;
+  font-size: 0.83rem;
+  margin-top: 6px;
+  table-layout: auto;
+}
+
+.stats-matrix-table th {
+  background: #f1f5f9;
+  color: #0f172a;
+  font-weight: 800;
+  padding: 10px 12px;
+  text-align: center;
+  border: 1px solid #94a3b8;
+  border-bottom: 2px solid #475569;
+  white-space: nowrap;
+  height: auto;
+}
+
+.stats-matrix-table td {
+  padding: 9.5px 12px;
+  border: 1px solid #cbd5e1;
+  color: #1e293b;
+  font-size: 0.83rem;
+  line-height: 1.5;
+  height: auto;
+  vertical-align: middle;
+}
+
+.stats-matrix-table tbody tr {
+  height: auto;
+}
+
+.stats-matrix-table tr:hover {
+  background: #f8fafc;
+}
+
+.stats-matrix-table tr.group-header-row td {
+  border-top: 2px solid #64748b;
+  border-bottom: 1.5px solid #94a3b8;
+  font-weight: 800;
+  padding: 9px 12px;
+}
+
+.stats-matrix-table tr.subtotal-row td {
+  border-top: 1.5px solid #94a3b8;
+  border-bottom: 1.5px solid #94a3b8;
+  padding: 9px 12px;
+  font-weight: 800;
+}
+
+.stats-matrix-table tr.grandtotal-row td {
+  border-top: 2px solid #475569;
+  border-bottom: 2px solid #475569;
+  padding: 10px 12px;
+  font-weight: 900;
+  background: #f1f5f9;
+}
+
 .empty-state {
   text-align: center;
   padding: 40px 20px;
