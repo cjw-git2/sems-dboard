@@ -3293,7 +3293,7 @@ function renderTableData() {
     if (headerTitle) headerTitle.textContent = '인허가 및 공사 목록 상세';
     const countTag = document.getElementById('tableRecordCount');
     if (countTag) {
-      countTag.textContent = 'DB 갱신 중...';
+      countTag.textContent = 'DB동기화 중...';
       countTag.style.background = '#2563eb';
       countTag.style.color = '#ffffff';
       countTag.style.borderColor = '#1d4ed8';
@@ -3304,17 +3304,14 @@ function renderTableData() {
       tbody.innerHTML = `
         <tr>
           <td colspan="15" style="padding: 0; border: none;">
-            <div style="padding: 70px 20px; display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 16px; background: #ffffff; text-align: center;">
-              <div style="width: 52px; height: 52px; border-radius: 50%; background: #eff6ff; display: flex; align-items: center; justify-content: center; border: 2px solid #bfdbfe; box-shadow: 0 4px 12px rgba(37, 99, 235, 0.15);">
-                <i data-lucide="loader-2" class="spin-icon" style="color: #2563eb; width: 28px; height: 28px;"></i>
+            <div style="padding: 70px 20px; display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 14px; background: #ffffff; text-align: center;">
+              <div style="width: 48px; height: 48px; border-radius: 50%; background: #eff6ff; display: flex; align-items: center; justify-content: center; border: 2px solid #bfdbfe; box-shadow: 0 4px 12px rgba(37, 99, 235, 0.12);">
+                <i data-lucide="loader-2" class="spin-icon" style="color: #2563eb; width: 26px; height: 26px;"></i>
               </div>
-              <div style="display: flex; flex-direction: column; gap: 8px; align-items: center;">
-                <h4 style="font-size: 1.25rem; font-weight: 800; color: #0f172a; margin: 0;">
-                  인허가 및 공사 데이터 DB 갱신 중...
+              <div style="display: flex; flex-direction: column; gap: 6px; align-items: center;">
+                <h4 style="font-size: 1.05rem; font-weight: 700; color: #1e293b; margin: 0;">
+                  서울시 도로굴착복구시스템 DB동기화 중...
                 </h4>
-                <p style="font-size: 1.05rem; color: #2563eb; font-weight: 800; margin: 0; line-height: 1.6; max-width: 640px;">
-                  📌 서울시 도로굴착복구시스템 DB 실시간 갱신에는 수 초에서 수십 초가 소요될 수 있습니다. 잠시만 기다려 주세요.
-                </p>
               </div>
             </div>
           </td>
