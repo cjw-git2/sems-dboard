@@ -389,33 +389,80 @@ function getCurrentFormattedTimestamp() {
   return `${yyyy}-${mm}-${dd}(${hh}:${min})`;
 }
 
+function formatDbTimestamp(rawVal) {
+  if (!rawVal) return '';
+  const str = String(rawVal).trim();
+  const match = str.match(/(\d{4}[\-\.\/]\d{2}[\-\.\/]\d{2})(?:\s+(\d{1,2}:\d{2})(?::\d{2})?)?/);
+  if (match) {
+    const dateStr = match[1].replace(/[\.\/]/g, '-');
+    const timeStr = match[2] ? match[2] : '';
+    return timeStr ? `${dateStr} ${timeStr}` : dateStr;
+  }
+  return str;
+}
+
+function getByteWidth(str) {
+  if (!str) return 0;
+  let width = 0;
+  const s = String(str);
+  for (let i = 0; i < s.length; i++) {
+    const code = s.charCodeAt(i);
+    if (code > 0x007f) {
+      width += 2;
+    } else {
+      width += 1;
+    }
+  }
+  return width;
+}
+
+function autoFitWorksheetColumns(worksheet, dataArray) {
+  if (!dataArray || dataArray.length === 0) return;
+  const headers = Object.keys(dataArray[0]);
+  const colWidths = headers.map(header => {
+    let maxLen = getByteWidth(header);
+    for (let i = 0; i < dataArray.length; i++) {
+      const val = dataArray[i][header];
+      if (val !== null && val !== undefined) {
+        const len = getByteWidth(String(val));
+        if (len > maxLen) maxLen = len;
+      }
+    }
+    return { wch: Math.min(Math.max(maxLen + 3, 10), 65) };
+  });
+  worksheet['!cols'] = colWidths;
+}
+
 /**
  * Renamed to '최종 업로드'
  */
 function updateDataTimestamp(timestampStr) {
   const elem = document.getElementById('timestampText');
   const badge = document.getElementById('dataTimestampBadge');
-  const text = timestampStr || 'DB갱신';
+  const text = timestampStr || 'DB동기화 완료';
   const isUpdating = text.includes('중...') || text.includes('로딩');
 
   if (badge) {
     const icon = badge.querySelector('i');
     if (isUpdating) {
       badge.style.background = '#2563eb';
-      badge.style.borderColor = '#1d4ed8';
+      badge.style.border = 'none';
+      badge.style.padding = '0 8px';
+      badge.style.borderRadius = '6px';
       badge.style.boxShadow = '0 0 10px rgba(37, 99, 235, 0.45)';
       badge.style.transition = 'all 0.3s ease';
       if (icon) icon.style.color = '#ffffff';
-      if (elem) elem.innerHTML = `<span style="color:#ffffff; font-weight:800;">${text}</span>`;
+      if (elem) elem.innerHTML = `<span style="color:#ffffff; font-weight:700;">${text}</span>`;
     } else {
-      badge.style.background = '#ffffff';
-      badge.style.borderColor = '#cbd5e1';
-      badge.style.boxShadow = '0 1px 2px rgba(0, 0, 0, 0.04)';
-      if (icon) icon.style.color = '#2563eb';
-      if (elem) elem.innerHTML = `<span style="color:#2563eb; font-weight:700;">${text}</span>`;
+      badge.style.background = 'transparent';
+      badge.style.border = 'none';
+      badge.style.padding = '0 4px';
+      badge.style.boxShadow = 'none';
+      if (icon) icon.style.color = '#475569';
+      if (elem) elem.innerHTML = `<span style="color:#1e293b; font-weight:400;">${text}</span>`;
     }
   } else if (elem) {
-    elem.innerHTML = `<span style="color:#2563eb; font-weight:700;">${text}</span>`;
+    elem.innerHTML = `<span style="color:#1e293b; font-weight:400;">${text}</span>`;
   }
 }
 
@@ -424,7 +471,7 @@ function updateDataTimestamp(timestampStr) {
  */
 async function fetchDashboardData() {
   isDataLoading = true;
-  updateDataTimestamp('DB갱신 중...');
+  updateDataTimestamp('DB동기화 중...');
 
   // 로딩 시작 시 테이블 영역에 안내 로딩 UI 즉시 표시
   renderTableData();
@@ -469,21 +516,29 @@ async function fetchDashboardData() {
       }
 
       let dbExportDate = '';
-      for (let r = 0; r < Math.min(approvalData.length, 5); r++) {
-        const rowStr = (approvalData[r] || []).join(' ');
-        if (rowStr.includes('출력일')) {
-          const match = rowStr.match(/\d{4}[\-\.\/]\d{2}[\-\.\/]\d{2}/);
-          if (match) {
-            dbExportDate = match[0];
+      // 구글 시트 '신청서별허가현황' D3 셀 (Row 3, Col D -> index approvalData[2][3])
+      if (approvalData[2] && approvalData[2][3]) {
+        dbExportDate = formatDbTimestamp(approvalData[2][3]);
+      }
+
+      // D3 셀이 비어있을 경우 상위 5행 내에서 출력일/일자 검색 (대체 로직)
+      if (!dbExportDate) {
+        for (let r = 0; r < Math.min(approvalData.length, 5); r++) {
+          const rowStr = (approvalData[r] || []).join(' ');
+          if (rowStr.includes('출력일') || rowStr.includes('202')) {
+            const extracted = formatDbTimestamp(rowStr);
+            if (extracted) {
+              dbExportDate = extracted;
+              break;
+            }
           }
-          break;
         }
       }
 
       if (dbExportDate) {
-        updateDataTimestamp(`${dbExportDate} DB갱신`);
+        updateDataTimestamp(`${dbExportDate} DB동기화 완료`);
       } else {
-        updateDataTimestamp('DB갱신');
+        updateDataTimestamp('DB동기화 완료');
       }
 
       isDataLoading = false;
@@ -494,13 +549,13 @@ async function fetchDashboardData() {
     } else {
       isDataLoading = false;
       console.error("서버 응답 오류:", result.message);
-      if (timestampText) timestampText.innerHTML = '<span style="color:#dc2626; font-weight:700;">DB갱신 실패</span>';
+      if (timestampText) timestampText.innerHTML = '<span style="color:#dc2626; font-weight:700;">DB동기화 실패</span>';
       renderTableData();
     }
   } catch (error) {
     isDataLoading = false;
     console.error("서버에서 데이터를 가져오지 못했습니다:", error);
-    if (timestampText) timestampText.innerHTML = '<span style="color:#dc2626; font-weight:700;">DB갱신 에러</span>';
+    if (timestampText) timestampText.innerHTML = '<span style="color:#dc2626; font-weight:700;">DB동기화 에러</span>';
     renderTableData();
   }
 }
@@ -1091,6 +1146,7 @@ function downloadContractorMappingTemplate() {
 
   const timestampStr = getFileTimestampString();
   const worksheet = XLSX.utils.json_to_sheet(exportRows);
+  autoFitWorksheetColumns(worksheet, exportRows);
   const workbook = XLSX.utils.book_new();
   XLSX.utils.book_append_sheet(workbook, worksheet, '수동맵핑DB');
   XLSX.writeFile(workbook, `SEMS_수동_맵핑_DB_전체_${timestampStr}.xlsx`);
@@ -1245,6 +1301,7 @@ function downloadPaymentTemplate() {
 
   const timestampStr = getFileTimestampString();
   const worksheet = XLSX.utils.json_to_sheet(exportRows);
+  autoFitWorksheetColumns(worksheet, exportRows);
   const workbook = XLSX.utils.book_new();
   XLSX.utils.book_append_sheet(workbook, worksheet, '납부현황내역');
   XLSX.writeFile(workbook, `SEMS_고지서_납부현황_DB_전체_${timestampStr}.xlsx`);
@@ -1408,6 +1465,7 @@ function downloadRefundPostpayTemplate() {
 
   const timestampStr = getFileTimestampString();
   const worksheet = XLSX.utils.json_to_sheet(exportRows);
+  autoFitWorksheetColumns(worksheet, exportRows);
   const workbook = XLSX.utils.book_new();
   XLSX.utils.book_append_sheet(workbook, worksheet, '환수사후납대상');
   XLSX.writeFile(workbook, `SEMS_환수_사후납_대상_DB_전체_${timestampStr}.xlsx`);
@@ -2519,6 +2577,7 @@ function exportYearlyStatsToExcel() {
 
   // Add Sheet 1
   const ws1 = XLSX.utils.json_to_sheet(districtRows);
+  autoFitWorksheetColumns(ws1, districtRows);
   XLSX.utils.book_append_sheet(workbook, ws1, '구축팀_자치구_미완료_통계');
 
   // Add Sheet 2, 3, 4 for SKTNS, PTCE, 미분류
@@ -2587,6 +2646,7 @@ function exportYearlyStatsToExcel() {
     });
 
     const ws = XLSX.utils.json_to_sheet(rows);
+    autoFitWorksheetColumns(ws, rows);
     XLSX.utils.book_append_sheet(workbook, ws, sheetName);
   });
 
@@ -3632,6 +3692,7 @@ function exportFilteredToExcel() {
     }));
 
     const worksheet = XLSX.utils.json_to_sheet(exportRows);
+    autoFitWorksheetColumns(worksheet, exportRows);
     const workbook = XLSX.utils.book_new();
     XLSX.utils.book_append_sheet(workbook, worksheet, '면적정산조회결과');
     XLSX.writeFile(workbook, `SEMS_면적정산_${subName}_조회결과_${timestampStr}.xlsx`);
@@ -3656,6 +3717,7 @@ function exportFilteredToExcel() {
     }));
 
     const worksheet = XLSX.utils.json_to_sheet(exportRows);
+    autoFitWorksheetColumns(worksheet, exportRows);
     const workbook = XLSX.utils.book_new();
     XLSX.utils.book_append_sheet(workbook, worksheet, '납부현황조회결과');
     XLSX.writeFile(workbook, `SEMS_납부현황_${subName}_조회결과_${timestampStr}.xlsx`);
@@ -3685,6 +3747,7 @@ function exportFilteredToExcel() {
     });
 
     const worksheet = XLSX.utils.json_to_sheet(exportRows);
+    autoFitWorksheetColumns(worksheet, exportRows);
     const workbook = XLSX.utils.book_new();
     XLSX.utils.book_append_sheet(workbook, worksheet, 'SEMS_조회결과');
     XLSX.writeFile(workbook, `SEMS_인허가현황_조회결과_${timestampStr}.xlsx`);
