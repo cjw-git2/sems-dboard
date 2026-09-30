@@ -392,13 +392,34 @@ function getCurrentFormattedTimestamp() {
 function formatDbTimestamp(rawVal) {
   if (!rawVal) return '';
   const str = String(rawVal).trim();
-  const match = str.match(/(\d{4}[\-\.\/]\d{2}[\-\.\/]\d{2})(?:\s+(\d{1,2}:\d{2})(?::\d{2})?)?/);
-  if (match) {
-    const dateStr = match[1].replace(/[\.\/]/g, '-');
-    const timeStr = match[2] ? match[2] : '';
-    return timeStr ? `${dateStr} ${timeStr}` : dateStr;
+  
+  const dateMatch = str.match(/(\d{4})[\-\.\/](\d{1,2})[\-\.\/](\d{1,2})/);
+  if (!dateMatch) return str;
+
+  const yyyy = dateMatch[1];
+  const mm = dateMatch[2].padStart(2, '0');
+  const dd = dateMatch[3].padStart(2, '0');
+  const dateStr = `${yyyy}-${mm}-${dd}`;
+
+  const isPM = /오후|PM/i.test(str);
+  const isAM = /오전|AM/i.test(str);
+
+  const timeMatch = str.match(/(\d{1,2}):(\d{2})(?::\d{2})?/);
+  if (timeMatch) {
+    let hour = parseInt(timeMatch[1], 10);
+    const minute = timeMatch[2].padStart(2, '0');
+
+    if (isPM && hour < 12) {
+      hour += 12;
+    } else if (isAM && hour === 12) {
+      hour = 0;
+    }
+
+    const hourStr = String(hour).padStart(2, '0');
+    return `${dateStr} ${hourStr}:${minute}`;
   }
-  return str;
+
+  return dateStr;
 }
 
 function getByteWidth(str) {
