@@ -1,14 +1,41 @@
 /**
  * SEMS (Seoul Excavation Management System)
  * Dashboard Logic & Dynamic Data Engine
- * Modern Pure White Clean Light Theme Edition (Ver 1.0)
+ * Modern Pure White Clean Light Theme Edition (Ver 1.4)
  * Integrated Web Hosting Authentication & Global Sync Engine
  */
 
-// Authentication State (Updated Credentials)
+// Authentication State (Server-verified JWT Session Token)
 const AUTH_SESSION_KEY = 'SEMS_AUTH_SESSION_TOKEN';
-const DEFAULT_ID = 'semsb2';
-const DEFAULT_PW = 'sems!2026';
+
+function escapeHtml(val) {
+  if (val === null || val === undefined) return '';
+  return String(val)
+    .replace(/&/g, '&amp;')
+    .replace(/</g, '&lt;')
+    .replace(/>/g, '&gt;')
+    .replace(/"/g, '&quot;')
+    .replace(/'/g, '&#39;');
+}
+
+function getAuthToken() {
+  return sessionStorage.getItem(AUTH_SESSION_KEY) || localStorage.getItem(AUTH_SESSION_KEY) || '';
+}
+
+function isTokenFormatValid(token) {
+  if (!token || typeof token !== 'string') return false;
+  const parts = token.split('.');
+  if (parts.length !== 3) return false;
+  try {
+    let base64 = parts[1].replace(/-/g, '+').replace(/_/g, '/');
+    while (base64.length % 4 !== 0) base64 += '=';
+    const payload = JSON.parse(atob(base64));
+    if (!payload.exp || Date.now() > payload.exp) return false;
+    return true;
+  } catch (e) {
+    return false;
+  }
+}
 
 // Global State
 let rawData = [];                // Loaded dataset from Excel (인허가 엑셀 데이터)
@@ -107,37 +134,58 @@ function cleanForSearch(str) {
 
 /* Authentication Engine */
 function checkAuthentication() {
-  const token = sessionStorage.getItem(AUTH_SESSION_KEY) || localStorage.getItem(AUTH_SESSION_KEY);
+  const token = getAuthToken();
   const loginOverlay = document.getElementById('loginModalOverlay');
   const appContainer = document.getElementById('dashboardAppContainer');
 
-  if (token === 'AUTHENTICATED') {
+  if (isTokenFormatValid(token)) {
     if (loginOverlay) loginOverlay.style.display = 'none';
     if (appContainer) appContainer.style.display = 'flex';
     return true;
   } else {
+    sessionStorage.removeItem(AUTH_SESSION_KEY);
+    localStorage.removeItem(AUTH_SESSION_KEY);
     if (loginOverlay) loginOverlay.style.display = 'flex';
     if (appContainer) appContainer.style.display = 'none';
     return false;
   }
 }
 
-function handleLoginSubmit(e) {
+async function handleLoginSubmit(e) {
   e.preventDefault();
   const idInput = document.getElementById('loginId').value.trim();
   const pwInput = document.getElementById('loginPassword').value.trim();
   const errBox = document.getElementById('loginErrorMessage');
   const errText = document.getElementById('loginErrorText');
+  const submitBtn = document.querySelector('#loginForm button[type="submit"]');
 
-  if (idInput === DEFAULT_ID && pwInput === DEFAULT_PW) {
-    sessionStorage.setItem(AUTH_SESSION_KEY, 'AUTHENTICATED');
-    errBox.style.display = 'none';
-    checkAuthentication();
-    confetti({ particleCount: 80, spread: 70, origin: { y: 0.6 } });
-    fetchDashboardData();
-  } else {
+  if (submitBtn) submitBtn.disabled = true;
+
+  try {
+    const response = await fetch('/.netlify/functions/login', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ id: idInput, password: pwInput })
+    });
+    const result = await response.json();
+
+    if (response.ok && result.success && result.token) {
+      sessionStorage.setItem(AUTH_SESSION_KEY, result.token);
+      errBox.style.display = 'none';
+      document.getElementById('loginPassword').value = '';
+      checkAuthentication();
+      confetti({ particleCount: 80, spread: 70, origin: { y: 0.6 } });
+      fetchDashboardData();
+    } else {
+      errBox.style.display = 'flex';
+      errText.textContent = result.message || '아이디 또는 비밀번호가 올바르지 않습니다.';
+    }
+  } catch (err) {
+    console.error('Login request failed:', err);
     errBox.style.display = 'flex';
-    errText.textContent = '아이디 또는 비밀번호가 올바르지 않습니다.';
+    errText.textContent = '로그인 서버와 통신할 수 없습니다. 잠시 후 다시 시도해 주세요.';
+  } finally {
+    if (submitBtn) submitBtn.disabled = false;
   }
 }
 
@@ -461,6 +509,7 @@ function updateDataTimestamp(timestampStr) {
   const elem = document.getElementById('timestampText');
   const badge = document.getElementById('dataTimestampBadge');
   const text = timestampStr || 'DB동기화 완료';
+  const safeText = escapeHtml(text);
   const isUpdating = text.includes('중...') || text.includes('로딩');
 
   if (badge) {
@@ -473,17 +522,17 @@ function updateDataTimestamp(timestampStr) {
       badge.style.boxShadow = '0 0 10px rgba(37, 99, 235, 0.45)';
       badge.style.transition = 'all 0.3s ease';
       if (icon) icon.style.color = '#ffffff';
-      if (elem) elem.innerHTML = `<span style="color:#ffffff; font-weight:700;">${text}</span>`;
+      if (elem) elem.innerHTML = `<span style="color:#ffffff; font-weight:700;">${safeText}</span>`;
     } else {
       badge.style.background = 'transparent';
       badge.style.border = 'none';
       badge.style.padding = '0 4px';
       badge.style.boxShadow = 'none';
       if (icon) icon.style.color = '#475569';
-      if (elem) elem.innerHTML = `<span style="color:#1e293b; font-weight:400;">${text}</span>`;
+      if (elem) elem.innerHTML = `<span style="color:#1e293b; font-weight:400;">${safeText}</span>`;
     }
   } else if (elem) {
-    elem.innerHTML = `<span style="color:#1e293b; font-weight:400;">${text}</span>`;
+    elem.innerHTML = `<span style="color:#1e293b; font-weight:400;">${safeText}</span>`;
   }
 }
 
@@ -491,6 +540,12 @@ function updateDataTimestamp(timestampStr) {
  * Netlify Serverless Function (getData.js)을 불러와 구글 시트 데이터 반영
  */
 async function fetchDashboardData() {
+  const token = getAuthToken();
+  if (!isTokenFormatValid(token)) {
+    checkAuthentication();
+    return;
+  }
+
   isDataLoading = true;
   updateDataTimestamp('DB동기화 중...');
 
@@ -502,7 +557,26 @@ async function fetchDashboardData() {
   localStorage.removeItem(REFUND_POSTPAY_DB_STORAGE_KEY);
 
   try {
-    const response = await fetch('/.netlify/functions/getData');
+    const response = await fetch('/.netlify/functions/getData', {
+      headers: {
+        'Authorization': `Bearer ${token}`
+      }
+    });
+
+    if (response.status === 401) {
+      isDataLoading = false;
+      sessionStorage.removeItem(AUTH_SESSION_KEY);
+      localStorage.removeItem(AUTH_SESSION_KEY);
+      checkAuthentication();
+      const errBox = document.getElementById('loginErrorMessage');
+      const errText = document.getElementById('loginErrorText');
+      if (errBox && errText) {
+        errBox.style.display = 'flex';
+        errText.textContent = '인증 세션이 만료되었습니다. 다시 로그인해 주세요.';
+      }
+      return;
+    }
+
     const result = await response.json();
 
     if (result.success && result.data) {
@@ -570,12 +644,14 @@ async function fetchDashboardData() {
     } else {
       isDataLoading = false;
       console.error("서버 응답 오류:", result.message);
+      const timestampText = document.getElementById('timestampText');
       if (timestampText) timestampText.innerHTML = '<span style="color:#dc2626; font-weight:700;">DB동기화 실패</span>';
       renderTableData();
     }
   } catch (error) {
     isDataLoading = false;
     console.error("서버에서 데이터를 가져오지 못했습니다:", error);
+    const timestampText = document.getElementById('timestampText');
     if (timestampText) timestampText.innerHTML = '<span style="color:#dc2626; font-weight:700;">DB동기화 에러</span>';
     renderTableData();
   }
@@ -1785,14 +1861,17 @@ function renderManualBpTable() {
     const info = manualMap[pNo];
     const comp = typeof info === 'object' ? info.company : info;
     const dateStr = typeof info === 'object' ? info.date : '-';
+    const safePNo = escapeHtml(pNo);
+    const safeComp = escapeHtml(comp);
+    const safeDate = escapeHtml(dateStr);
     
     return `
       <tr>
-        <td style="padding: 6px 10px;"><code style="color:#2563eb; font-weight:600;">${pNo}</code></td>
-        <td style="padding: 6px 10px; font-weight: 700; color: #7c3aed;">${comp} <span class="manual-bp-tag">수동</span></td>
-        <td style="padding: 6px 10px; color: #64748b; font-size: 0.72rem;">${dateStr}</td>
+        <td style="padding: 6px 10px;"><code style="color:#2563eb; font-weight:600;">${safePNo}</code></td>
+        <td style="padding: 6px 10px; font-weight: 700; color: #7c3aed;">${safeComp} <span class="manual-bp-tag">수동</span></td>
+        <td style="padding: 6px 10px; color: #64748b; font-size: 0.72rem;">${safeDate}</td>
         <td style="padding: 6px 10px; text-align: center;">
-          <button onclick="removeManualBPRecord('${pNo}')" style="background: #fef2f2; color: #dc2626; border: 1px solid #fecaca; padding: 2px 6px; border-radius: 4px; font-size: 0.7rem; cursor: pointer;">삭제</button>
+          <button data-permit-no="${safePNo}" onclick="removeManualBPRecord(this.getAttribute('data-permit-no'))" style="background: #fef2f2; color: #dc2626; border: 1px solid #fecaca; padding: 2px 6px; border-radius: 4px; font-size: 0.7rem; cursor: pointer;">삭제</button>
         </td>
       </tr>
     `;
@@ -1869,10 +1948,11 @@ function populateDistrictCheckboxes() {
 
   listContainer.innerHTML = sortedDistricts.map(d => {
     const isChecked = selectedDistricts.includes(d);
+    const safeD = escapeHtml(d);
     return `
       <label class="multiselect-item">
-        <input type="checkbox" value="${d}" ${isChecked ? 'checked' : ''} onchange="toggleDistrictSelection('${d}')" />
-        <span>${d}</span>
+        <input type="checkbox" value="${safeD}" data-district="${safeD}" ${isChecked ? 'checked' : ''} onchange="toggleDistrictSelection(this.getAttribute('data-district'))" />
+        <span>${safeD}</span>
       </label>
     `;
   }).join('');
@@ -2348,7 +2428,7 @@ function renderContractorTableHTML(cCat, titleTag, title, accentColor, bgHeader,
                 <tr>
                   <td style="text-align: center; color: #64748b;">${idx + 1}</td>
                   <td style="text-align: center;"><span class="badge-sunam">수남구축팀</span></td>
-                  <td style="text-align: left; font-weight: 700; color: #0f172a; padding-left: 10px;">${bp}</td>
+                  <td style="text-align: left; font-weight: 700; color: #0f172a; padding-left: 10px;">${escapeHtml(bp)}</td>
                   ${years.map(y => {
                     const val = rowData[y] || 0;
                     return `<td class="${val > 0 ? 'stats-val-active' : 'stats-val-zero'}">${val.toLocaleString()}</td>`;
@@ -2382,7 +2462,7 @@ function renderContractorTableHTML(cCat, titleTag, title, accentColor, bgHeader,
                 <tr>
                   <td style="text-align: center; color: #64748b;">${sunamBPs.length + idx + 1}</td>
                   <td style="text-align: center;"><span class="badge-subuk">수북구축팀</span></td>
-                  <td style="text-align: left; font-weight: 700; color: #0f172a; padding-left: 10px;">${bp}</td>
+                  <td style="text-align: left; font-weight: 700; color: #0f172a; padding-left: 10px;">${escapeHtml(bp)}</td>
                   ${years.map(y => {
                     const val = rowData[y] || 0;
                     return `<td class="${val > 0 ? 'stats-val-active' : 'stats-val-zero'}">${val.toLocaleString()}</td>`;
@@ -3397,14 +3477,18 @@ function renderTableData() {
       }
       if (!currentStatus) currentStatus = '준공검토';
 
-      const rawStatusTag = `<span style="font-size:0.78rem; color:#1e293b; font-weight:700; background:#f1f5f9; border:1px solid #cbd5e1; padding:2px 8px; border-radius:4px; display:inline-block;">${currentStatus}</span>`;
+      const safeStatus = escapeHtml(currentStatus);
+      const safePermitNo = escapeHtml(item.permitNo || '-');
+      const safeRestoreEntity = escapeHtml(item.restoreEntity || '-');
+
+      const rawStatusTag = `<span style="font-size:0.78rem; color:#1e293b; font-weight:700; background:#f1f5f9; border:1px solid #cbd5e1; padding:2px 8px; border-radius:4px; display:inline-block;">${safeStatus}</span>`;
 
       return `
         <tr>
           <td>${startIndex + index + 1}</td>
-          <td style="white-space:nowrap;"><code style="color:#2563eb; font-weight:700; font-size:0.86rem; white-space:nowrap;">${item.permitNo || '-'}</code></td>
+          <td style="white-space:nowrap;"><code style="color:#2563eb; font-weight:700; font-size:0.86rem; white-space:nowrap;">${safePermitNo}</code></td>
           <td>${rawStatusTag}</td>
-          <td><span style="color:#475569; font-weight:600;">${item.restoreEntity || '-'}</span></td>
+          <td><span style="color:#475569; font-weight:600;">${safeRestoreEntity}</span></td>
           <td style="font-weight:700; color:#c2410c; background:#fff7ed;">${formatAreaNumber(item.permitArea)}</td>
           <td style="font-weight:700; color:#059669; background:#f0fdf4;">${formatAreaNumber(item.compArea)}</td>
           <td><span style="${diffTagStyle}">${diffFormatted}</span></td>
@@ -3440,7 +3524,7 @@ function renderTableData() {
         <tr>
           <td colspan="9" class="empty-state">
             <div class="empty-icon">💳</div>
-            <p>선택하신 필터 조건에 부합하는 납부 관리 [${subName}] 내역이 없습니다.<br><span style="font-size:0.78rem; color:#64748b;">하단의 [고지서 / 납부현황 DB] 업로드 버튼을 통해 엑셀을 입력하시거나 상단 검색조건을 변경해보세요.</span></p>
+            <p>선택하신 필터 조건에 부합하는 납부 관리 [${escapeHtml(subName)}] 내역이 없습니다.<br><span style="font-size:0.78rem; color:#64748b;">하단의 [고지서 / 납부현황 DB] 업로드 버튼을 통해 엑셀을 입력하시거나 상단 검색조건을 변경해보세요.</span></p>
           </td>
         </tr>`;
       renderPagination(0);
@@ -3458,21 +3542,32 @@ function renderTableData() {
 
     tbody.innerHTML = pageData.map((item, index) => {
       const isPaid = item.status === '완납';
+      const safeStatus = escapeHtml(item.status || '납부대기');
       const statusTag = isPaid 
         ? '<span style="color:#059669; font-weight:700; background:#ecfdf5; border:1px solid #a7f3d0; padding:2px 6px; border-radius:4px; font-size:0.74rem;">완납</span>'
-        : `<span style="color:#d97706; font-weight:600; background:#fffbeb; border:1px solid #fde68a; padding:2px 6px; border-radius:4px; font-size:0.74rem;">${item.status || '납부대기'}</span>`;
+        : `<span style="color:#d97706; font-weight:600; background:#fffbeb; border:1px solid #fde68a; padding:2px 6px; border-radius:4px; font-size:0.74rem;">${safeStatus}</span>`;
+
+      const safePermitNo = escapeHtml(item.permitNo || '-');
+      const safeNoticeType = escapeHtml(item.noticeType || '-');
+      const safeCategory = escapeHtml(item.category || '-');
+      const safeTitleAttr = escapeHtml(item.title || '');
+      const safeTitleText = escapeHtml(item.title || '-');
+      const safeAmount = escapeHtml(item.amount || '-');
+      const safeIssueDate = escapeHtml(item.issueDate || '-');
+      const safeDueDate = escapeHtml(item.dueDate || '-');
+      const safePayDate = escapeHtml(item.payDate || '');
 
       return `
         <tr>
           <td>${startIndex + index + 1}</td>
-          <td style="white-space:nowrap;"><code style="color:#2563eb; font-weight:700; font-size:0.86rem; white-space:nowrap;">${item.permitNo || '-'}</code></td>
-          <td><span style="font-weight:600; color:#475569;">${item.noticeType || '-'}</span></td>
-          <td>${item.category || '-'}</td>
-          <td style="font-weight:600;" title="${item.title || ''}">${item.title || '-'}</td>
-          <td style="font-weight:700; color:#0f172a;">${item.amount || '-'}</td>
-          <td>${item.issueDate || '-'}</td>
-          <td>${item.dueDate || '-'}</td>
-          <td>${item.payDate && item.payDate !== '-' ? `<span style="color:#059669; font-weight:700;">${item.payDate}</span>` : statusTag}</td>
+          <td style="white-space:nowrap;"><code style="color:#2563eb; font-weight:700; font-size:0.86rem; white-space:nowrap;">${safePermitNo}</code></td>
+          <td><span style="font-weight:600; color:#475569;">${safeNoticeType}</span></td>
+          <td>${safeCategory}</td>
+          <td style="font-weight:600;" title="${safeTitleAttr}">${safeTitleText}</td>
+          <td style="font-weight:700; color:#0f172a;">${safeAmount}</td>
+          <td>${safeIssueDate}</td>
+          <td>${safeDueDate}</td>
+          <td>${item.payDate && item.payDate !== '-' ? `<span style="color:#059669; font-weight:700;">${safePayDate}</span>` : statusTag}</td>
         </tr>
       `;
     }).join('');
@@ -3548,19 +3643,29 @@ function renderTableData() {
 
     tbody.innerHTML = pageData.map((item, index) => {
       const manualTag = item.isManualBP ? '<span class="manual-bp-tag">수동</span>' : '';
-      const contractorDisplay = item.contractor && item.contractor !== '-' ? `<span style="font-weight:700; color:#0284c7;">${item.contractor}</span>` : '-';
-      const remarkDisplay = item.remark && item.remark !== '-' ? `<span style="font-size:0.74rem; color:#475569;" title="${item.remark}">${item.remark}</span>` : '-';
+      const safeContractor = escapeHtml(item.contractor);
+      const safeRemark = escapeHtml(item.remark);
+      const contractorDisplay = item.contractor && item.contractor !== '-' ? `<span style="font-weight:700; color:#0284c7;">${safeContractor}</span>` : '-';
+      const remarkDisplay = item.remark && item.remark !== '-' ? `<span style="font-size:0.74rem; color:#475569;" title="${safeRemark}">${safeRemark}</span>` : '-';
+
+      const safePermitNo = escapeHtml(item.permitNo || '-');
+      const safeTitleAttr = escapeHtml(item.title || '');
+      const safeTitleText = escapeHtml(item.title || '-');
+      const safeCompany = escapeHtml(item.company || '-');
+      const safeApplyDate = escapeHtml(item.applyDate || '-');
+      const safePermitDate = escapeHtml(item.permitDate || '-');
+      const safeRawStatus = escapeHtml(item.rawStatus || '-');
 
       return `
         <tr>
           <td>${startIndex + index + 1}</td>
-          <td style="white-space:nowrap;"><code style="color:#2563eb; font-weight:700; font-size:0.86rem; white-space:nowrap;">${item.permitNo || '-'}</code></td>
-          <td style="font-weight:600;" title="${item.title || ''}">${item.title || '-'}</td>
-          <td><span style="color:#7c3aed; font-weight:600;">${item.company || '-'}</span>${manualTag}</td>
+          <td style="white-space:nowrap;"><code style="color:#2563eb; font-weight:700; font-size:0.86rem; white-space:nowrap;">${safePermitNo}</code></td>
+          <td style="font-weight:600;" title="${safeTitleAttr}">${safeTitleText}</td>
+          <td><span style="color:#7c3aed; font-weight:600;">${safeCompany}</span>${manualTag}</td>
           <td>${contractorDisplay}</td>
-          <td>${item.applyDate || '-'}</td>
-          <td>${item.permitDate || '-'}</td>
-          <td><span style="color:#dc2626; font-weight:700;">${item.rawStatus}</span></td>
+          <td>${safeApplyDate}</td>
+          <td>${safePermitDate}</td>
+          <td><span style="color:#dc2626; font-weight:700;">${safeRawStatus}</span></td>
           <td>${remarkDisplay}</td>
         </tr>
       `;
