@@ -1,12 +1,9 @@
 /**
  * SEMS (Seoul Excavation Management System)
  * Dashboard Logic & Dynamic Data Engine
- * Modern Pure White Clean Light Theme Edition (Ver 1.4)
+ * Modern Pure White Clean Light Theme Edition (Ver 1.5)
  * Integrated Web Hosting Authentication & Global Sync Engine
  */
-
-// Authentication State (Server-verified JWT Session Token)
-const AUTH_SESSION_KEY = 'SEMS_AUTH_SESSION_TOKEN';
 
 function escapeHtml(val) {
   if (val === null || val === undefined) return '';
@@ -16,25 +13,6 @@ function escapeHtml(val) {
     .replace(/>/g, '&gt;')
     .replace(/"/g, '&quot;')
     .replace(/'/g, '&#39;');
-}
-
-function getAuthToken() {
-  return sessionStorage.getItem(AUTH_SESSION_KEY) || localStorage.getItem(AUTH_SESSION_KEY) || '';
-}
-
-function isTokenFormatValid(token) {
-  if (!token || typeof token !== 'string') return false;
-  const parts = token.split('.');
-  if (parts.length !== 3) return false;
-  try {
-    let base64 = parts[1].replace(/-/g, '+').replace(/_/g, '/');
-    while (base64.length % 4 !== 0) base64 += '=';
-    const payload = JSON.parse(atob(base64));
-    if (!payload.exp || Date.now() > payload.exp) return false;
-    return true;
-  } catch (e) {
-    return false;
-  }
 }
 
 // Global State
@@ -132,71 +110,6 @@ function cleanForSearch(str) {
     .trim();
 }
 
-/* Authentication Engine */
-function checkAuthentication() {
-  const token = getAuthToken();
-  const loginOverlay = document.getElementById('loginModalOverlay');
-  const appContainer = document.getElementById('dashboardAppContainer');
-
-  if (isTokenFormatValid(token)) {
-    if (loginOverlay) loginOverlay.style.display = 'none';
-    if (appContainer) appContainer.style.display = 'flex';
-    return true;
-  } else {
-    sessionStorage.removeItem(AUTH_SESSION_KEY);
-    localStorage.removeItem(AUTH_SESSION_KEY);
-    if (loginOverlay) loginOverlay.style.display = 'flex';
-    if (appContainer) appContainer.style.display = 'none';
-    return false;
-  }
-}
-
-async function handleLoginSubmit(e) {
-  e.preventDefault();
-  const idInput = document.getElementById('loginId').value.trim();
-  const pwInput = document.getElementById('loginPassword').value.trim();
-  const errBox = document.getElementById('loginErrorMessage');
-  const errText = document.getElementById('loginErrorText');
-  const submitBtn = document.querySelector('#loginForm button[type="submit"]');
-
-  if (submitBtn) submitBtn.disabled = true;
-
-  try {
-    const response = await fetch('/.netlify/functions/login', {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ id: idInput, password: pwInput })
-    });
-    const result = await response.json();
-
-    if (response.ok && result.success && result.token) {
-      sessionStorage.setItem(AUTH_SESSION_KEY, result.token);
-      errBox.style.display = 'none';
-      document.getElementById('loginPassword').value = '';
-      checkAuthentication();
-      confetti({ particleCount: 80, spread: 70, origin: { y: 0.6 } });
-      fetchDashboardData();
-    } else {
-      errBox.style.display = 'flex';
-      errText.textContent = result.message || '아이디 또는 비밀번호가 올바르지 않습니다.';
-    }
-  } catch (err) {
-    console.error('Login request failed:', err);
-    errBox.style.display = 'flex';
-    errText.textContent = '로그인 서버와 통신할 수 없습니다. 잠시 후 다시 시도해 주세요.';
-  } finally {
-    if (submitBtn) submitBtn.disabled = false;
-  }
-}
-
-function handleLogout() {
-  if (confirm('대시보드에서 로그아웃 하시겠습니까?')) {
-    sessionStorage.removeItem(AUTH_SESSION_KEY);
-    localStorage.removeItem(AUTH_SESSION_KEY);
-    checkAuthentication();
-  }
-}
-
 /* Local Persistent Database Utilities for Exception BP Overrides */
 function getManualBPMap() {
   try {
@@ -265,14 +178,16 @@ function savePaymentDBMap(mapObj) {
 function updatePaymentDbBadge() {
   const badge = document.getElementById('paymentDbBadge');
   if (!badge) return;
-  const map = getPaymentDBMap();
-  const count = Object.keys(map).length;
+  const count = paymentData ? paymentData.length : Object.keys(getPaymentDBMap()).length;
   badge.textContent = `${count.toLocaleString()}건`;
 }
 
 function loadPaymentDataFromDB() {
   const dbMap = getPaymentDBMap();
-  paymentData = Object.values(dbMap);
+  paymentData = Object.values(dbMap).filter(item => {
+    const refNo = item.permitNo || item.permitAppNo || '';
+    return isPermitNoPermittedForCurrentUser(refNo);
+  });
   updatePaymentDbBadge();
 }
 
@@ -298,8 +213,7 @@ function saveRefundPostpayDBMap(mapObj) {
 function updateRefundDbBadge() {
   const badge = document.getElementById('refundDbBadge');
   if (!badge) return;
-  const map = getRefundPostpayDBMap();
-  const count = Object.keys(map).length;
+  const count = refundPostpayData ? refundPostpayData.length : Object.keys(getRefundPostpayDBMap()).length;
   badge.textContent = `${count.toLocaleString()}건`;
 }
 
@@ -326,6 +240,10 @@ function loadRefundPostpayDataFromDB() {
         if (match.rawStatus) resolvedStatus = match.rawStatus;
         if (match.region) regionVal = match.region;
       }
+    }
+
+    if (!isPermitNoPermittedForCurrentUser(pNo, regionVal)) {
+      continue;
     }
 
     cleanedMap[pNo] = {
@@ -796,8 +714,8 @@ function processApprovalStatusData(rawRows) {
     const bpResult = resolveBPCompany(regionVal, rawCompanyVal, permitNoVal);
     const cDetails = resolveContractorDetails(permitNoVal);
 
-    parsedData.push({
-      id: validCounter++,
+    const recordItem = {
+      id: validCounter,
       region: regionVal,
       permitNo: permitNoVal,
       title: titleVal,
@@ -812,14 +730,26 @@ function processApprovalStatusData(rawRows) {
       permitDate: formatExcelDate(eColumnPermitDate),
       rawStatus: statusVal || '진행중',
       rawRowText: rowJoinText
-    });
+    };
+
+    if (!isRecordPermittedForCurrentUser(recordItem)) {
+      continue;
+    }
+
+    recordItem.id = validCounter++;
+    parsedData.push(recordItem);
   }
 
   rawData = parsedData;
 }
 
 function processPaymentListData(rawRows) {
-  if (!rawRows || rawRows.length <= 1) return;
+  if (!rawRows || rawRows.length === 0) return;
+  if (rawRows.length === 1) {
+    savePaymentDBMap({});
+    loadPaymentDataFromDB();
+    return;
+  }
 
   let headerRowIndex = 0;
   for (let r = 0; r < Math.min(rawRows.length, 10); r++) {
@@ -891,7 +821,12 @@ function processPaymentListData(rawRows) {
 }
 
 function processRefundAdjustmentData(rawRows) {
-  if (!rawRows || rawRows.length <= 1) return;
+  if (!rawRows || rawRows.length === 0) return;
+  if (rawRows.length === 1) {
+    saveRefundPostpayDBMap({});
+    loadRefundPostpayDataFromDB();
+    return;
+  }
 
   let headerRowIndex = 0;
   for (let r = 0; r < Math.min(rawRows.length, 10); r++) {
@@ -1921,7 +1856,8 @@ function setupMultiSelectEvents() {
   });
 
   btnSelectAll.addEventListener('click', () => {
-    selectedDistricts = [...ALL_25_DISTRICTS];
+    const checkboxes = document.querySelectorAll('#districtCheckboxList input[type="checkbox"]');
+    selectedDistricts = Array.from(checkboxes).map(cb => cb.value);
     updateDistrictCheckboxesUI();
     updateMultiSelectLabel();
     currentPage = 1;
@@ -1941,7 +1877,8 @@ function populateDistrictCheckboxes() {
   const listContainer = document.getElementById('districtCheckboxList');
   if (!listContainer) return;
 
-  const districtsSet = new Set(ALL_25_DISTRICTS);
+  const isAdmin = !currentUser || String(currentUser.role || '').toUpperCase() === 'ADMIN';
+  const districtsSet = new Set(isAdmin || rawData.length === 0 ? ALL_25_DISTRICTS : []);
   rawData.forEach(item => { if (item.region) districtsSet.add(item.region); });
 
   const sortedDistricts = Array.from(districtsSet).sort();
@@ -2978,25 +2915,45 @@ function populateDropdownOptions() {
     selectOrgValue.innerHTML = '<option value="ALL">전체 항목</option>';
 
     const valuesSet = new Set();
+    const isAdmin = !currentUser || String(currentUser.role || '').toUpperCase() === 'ADMIN';
+    const userRole = currentUser ? String(currentUser.role || '').toUpperCase() : 'ADMIN';
 
     if (orgCategory === 'BP사') {
-      BP_DISTRICT_MAP.forEach(pair => valuesSet.add(pair.bp));
+      if (isAdmin) {
+        BP_DISTRICT_MAP.forEach(pair => valuesSet.add(pair.bp));
+        const manualMap = getManualBPMap();
+        Object.values(manualMap).forEach(info => {
+          const cName = typeof info === 'object' ? info.company : info;
+          if (cName) valuesSet.add(cName);
+        });
+      } else if (userRole === 'BP' && currentUser.company) {
+        valuesSet.add(currentUser.company);
+      }
       rawData.forEach(item => { if (item.company) valuesSet.add(item.company); });
-      const manualMap = getManualBPMap();
-      Object.values(manualMap).forEach(info => {
-        const cName = typeof info === 'object' ? info.company : info;
-        if (cName) valuesSet.add(cName);
-      });
     } else if (orgCategory === '구축팀') {
-      valuesSet.add('수남구축팀');
-      valuesSet.add('수북구축팀');
+      if (isAdmin || rawData.length === 0) {
+        valuesSet.add('수남구축팀');
+        valuesSet.add('수북구축팀');
+      } else {
+        if (userRole === 'TEAM' && currentUser.company) {
+          valuesSet.add(currentUser.company);
+        }
+        rawData.forEach(item => {
+          if (SUNAM_DISTRICTS.includes(item.region)) valuesSet.add('수남구축팀');
+          if (SUBUK_DISTRICTS.includes(item.region)) valuesSet.add('수북구축팀');
+        });
+      }
     } else if (orgCategory === '도급사') {
       valuesSet.add('미분류'); // Renamed '미구분' to '미분류' for contractor filter!
+      if (isAdmin) {
+        const contractorMap = getContractorMap();
+        Object.values(contractorMap).forEach(cInfo => {
+          if (cInfo.contractor) valuesSet.add(cInfo.contractor);
+        });
+      } else if (userRole === 'CONTRACTOR' && currentUser.company) {
+        valuesSet.add(currentUser.company);
+      }
       rawData.forEach(item => { if (item.contractor && item.contractor !== '-') valuesSet.add(item.contractor); });
-      const contractorMap = getContractorMap();
-      Object.values(contractorMap).forEach(cInfo => {
-        if (cInfo.contractor) valuesSet.add(cInfo.contractor);
-      });
     }
 
     Array.from(valuesSet).sort().forEach(val => {
@@ -3825,8 +3782,8 @@ function handleExcelFile(file) {
         const bpResult = resolveBPCompany(regionVal, rawCompanyVal, permitNoVal);
         const cDetails = resolveContractorDetails(permitNoVal);
 
-        parsedData.push({
-          id: validCounter++,
+        const recordItem = {
+          id: validCounter,
           region: regionVal,
           permitNo: permitNoVal,
           title: titleVal,
@@ -3841,7 +3798,14 @@ function handleExcelFile(file) {
           permitDate: formatExcelDate(eColumnPermitDate),
           rawStatus: statusVal || '진행중',
           rawRowText: rowJoinText
-        });
+        };
+
+        if (!isRecordPermittedForCurrentUser(recordItem)) {
+          continue;
+        }
+
+        recordItem.id = validCounter++;
+        parsedData.push(recordItem);
       }
 
       rawData = parsedData;

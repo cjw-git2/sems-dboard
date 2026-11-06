@@ -3,7 +3,7 @@
 <head>
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
-  <title>SEMS - 서울 도로굴착복구관리 대시보드 Ver 1.4</title>
+  <title>SEMS - 서울 도로굴착복구관리 대시보드 Ver 1.5</title>
   
   <!-- Pretendard & Inter Web Font -->
   <link rel="stylesheet" as="style" crossorigin href="https://cdn.jsdelivr.net/gh/orioncactus/pretendard@v1.3.9/dist/web/static/pretendard.min.css" />
@@ -55,17 +55,28 @@
   <div class="bg-glow-1"></div>
   <div class="bg-glow-2"></div>
 
-  <!-- Login Modal Overlay for Secured Access Control -->
+  <!-- Login & Account Registration Modal Overlay for Secured Access Control -->
   <div id="loginModalOverlay" class="login-modal-overlay">
-    <div class="login-modal-card glass-panel">
-      <div class="login-modal-header">
+    <div class="login-modal-card glass-panel" style="max-width: 440px;">
+      <div class="login-modal-header" style="margin-bottom: 14px;">
         <div class="header-icon-box" style="width: 52px; height: 52px; margin: 0 auto 12px; font-size: 26px;">
           <i data-lucide="shield-check" style="color: white; width: 28px; height: 28px;"></i>
         </div>
-        <h2 style="font-size: 1.5rem; font-weight: 900; color: #0f172a; letter-spacing: -0.5px;">SEMS Dashboard LogIn</h2>
+        <h2 style="font-size: 1.5rem; font-weight: 900; color: #0f172a; letter-spacing: -0.5px;">SEMS Dashboard Access</h2>
         <p style="font-size: 0.82rem; color: #64748b; margin-top: 4px;">서울시 도로굴착복구 관리 시스템 접속 인증</p>
       </div>
 
+      <!-- Mode Switcher Tabs: 로그인 vs 계정 승인 요청 -->
+      <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 4px; background: #f1f5f9; padding: 4px; border-radius: 10px; margin-bottom: 18px; border: 1px solid #e2e8f0;">
+        <button type="button" id="tabBtnLogin" onclick="switchAuthModalTab('LOGIN')" style="padding: 8px 10px; border: none; border-radius: 7px; font-size: 0.82rem; font-weight: 800; cursor: pointer; background: #ffffff; color: #2563eb; box-shadow: 0 1px 3px rgba(15, 23, 42, 0.1); transition: all 0.2s;">
+          로그인
+        </button>
+        <button type="button" id="tabBtnRegister" onclick="switchAuthModalTab('REGISTER')" style="padding: 8px 10px; border: none; border-radius: 7px; font-size: 0.82rem; font-weight: 800; cursor: pointer; background: transparent; color: #64748b; box-shadow: none; transition: all 0.2s;">
+          계정 승인 요청
+        </button>
+      </div>
+
+      <!-- 1. Login Form -->
       <form id="loginForm" onsubmit="handleLoginSubmit(event)" class="login-form">
         <div class="form-group">
           <label for="loginId">아이디 (ID)</label>
@@ -84,7 +95,7 @@
         </div>
 
         <div id="loginErrorMessage" class="login-error-msg" style="display: none;">
-          <i data-lucide="alert-circle" style="width: 14px; height: 14px;"></i>
+          <i data-lucide="alert-circle" style="width: 14px; height: 14px; flex-shrink: 0;"></i>
           <span id="loginErrorText">아이디 또는 비밀번호가 일치하지 않습니다.</span>
         </div>
 
@@ -92,6 +103,123 @@
           <i data-lucide="log-in"></i>
           <span>대시보드 접속하기</span>
         </button>
+      </form>
+
+      <!-- 2. Account Registration Request Form -->
+      <form id="registerForm" onsubmit="handleRegisterSubmit(event)" class="login-form" style="display: none; gap: 12px;">
+        <div id="registerFormFields" style="display: flex; flex-direction: column; gap: 12px;">
+          <div style="background: #eff6ff; border: 1px solid #bfdbfe; border-radius: 8px; padding: 9px 12px; font-size: 0.76rem; color: #1e40af; line-height: 1.45; font-weight: 600;">
+            최초 1회 계정 승인 요청 후, 관리자가 권한등급 및 사용여부를 승인하면 대시보드 열람이 가능합니다.
+          </div>
+
+          <div class="form-group">
+            <label for="regId">희망 아이디 (ID)</label>
+            <div class="input-icon-wrapper">
+              <i data-lucide="user-plus" class="field-icon"></i>
+              <input type="text" id="regId" class="text-input" placeholder="영문/숫자 3~30자 입력" required autocomplete="off" />
+            </div>
+          </div>
+
+          <div style="display: flex; flex-direction: column; gap: 6px;">
+            <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 10px;">
+              <div class="form-group">
+                <label for="regPassword">비밀번호</label>
+                <div class="input-icon-wrapper">
+                  <i data-lucide="lock" class="field-icon"></i>
+                  <input type="password" id="regPassword" class="text-input" placeholder="4자 이상 입력" required autocomplete="new-password" />
+                </div>
+              </div>
+              <div class="form-group">
+                <label for="regPasswordConfirm">비밀번호 확인</label>
+                <div class="input-icon-wrapper">
+                  <i data-lucide="check-circle-2" class="field-icon"></i>
+                  <input type="password" id="regPasswordConfirm" class="text-input" placeholder="비밀번호 재입력" required autocomplete="new-password" />
+                </div>
+              </div>
+            </div>
+            <label for="regShowPassword" style="display: inline-flex; align-items: center; gap: 6px; font-size: 0.78rem; font-weight: 600; color: #475569; cursor: pointer; user-select: none; align-self: flex-end; margin-top: 2px;">
+              <input type="checkbox" id="regShowPassword" onchange="toggleRegisterPasswordVisibility(this.checked)" style="width: 14px; height: 14px; accent-color: #2563eb; cursor: pointer; margin: 0;" />
+              <span>입력한 비밀번호 표시</span>
+            </label>
+          </div>
+
+          <div class="form-group">
+            <label for="regName">사용자명 (성명)</label>
+            <div class="input-icon-wrapper">
+              <i data-lucide="badge-check" class="field-icon"></i>
+              <input type="text" id="regName" class="text-input" placeholder="성명을 입력하세요 (예: 홍길동)" required />
+            </div>
+          </div>
+
+          <div class="form-group">
+            <label for="regCompanySelect">소속 (구축팀 / 도급사 / BP사)</label>
+            <select id="regCompanySelect" class="select-input" onchange="handleRegisterCompanySelectChange()" required style="width: 100%; height: 42px; padding: 0 12px; font-size: 0.86rem;">
+              <option value="" disabled selected>소속을 선택하세요</option>
+              <optgroup label="구축팀">
+                <option value="수남구축팀">수남구축팀</option>
+                <option value="수북구축팀">수북구축팀</option>
+              </optgroup>
+              <optgroup label="도급사">
+                <option value="PTCE">PTCE</option>
+                <option value="SKTNS">SKTNS</option>
+              </optgroup>
+              <optgroup label="BP사 (협력사)">
+                <option value="㈜부민통신">㈜부민통신</option>
+                <option value="에프투텔레콤㈜">에프투텔레콤㈜</option>
+                <option value="엘케이테크넷㈜">엘케이테크넷㈜</option>
+                <option value="㈜세하통신">㈜세하통신</option>
+                <option value="㈜이화텔레콤">㈜이화텔레콤</option>
+                <option value="㈜지앤에스기술">㈜지앤에스기술</option>
+                <option value="오티씨㈜">오티씨㈜</option>
+                <option value="우일정보기술㈜">우일정보기술㈜</option>
+                <option value="㈜우호텔레콤">㈜우호텔레콤</option>
+                <option value="㈜컴피아">㈜컴피아</option>
+              </optgroup>
+              <optgroup label="기타">
+                <option value="DIRECT_INPUT">직접 입력...</option>
+              </optgroup>
+            </select>
+          </div>
+
+          <div id="regCompanyCustomWrapper" class="form-group" style="display: none;">
+            <label for="regCompanyCustom">소속 직접 입력</label>
+            <div class="input-icon-wrapper">
+              <i data-lucide="building-2" class="field-icon"></i>
+              <input type="text" id="regCompanyCustom" class="text-input" placeholder="소속 팀 또는 업체명을 입력하세요" />
+            </div>
+          </div>
+
+          <div id="registerFeedbackMessage" class="login-error-msg" style="display: none;">
+            <i data-lucide="info" style="width: 14px; height: 14px; flex-shrink: 0;"></i>
+            <span id="registerFeedbackText"></span>
+          </div>
+
+          <div style="display: grid; grid-template-columns: 1fr 2fr; gap: 8px; margin-top: 4px;">
+            <button type="button" onclick="switchAuthModalTab('LOGIN')" class="btn" style="height: 44px; justify-content: center; background: #f1f5f9; color: #475569; border: 1px solid #cbd5e1; font-weight: 700;">
+              <span>닫기</span>
+            </button>
+            <button type="submit" id="btnSubmitRegister" class="btn btn-primary btn-login-submit" style="margin-top: 0; background: linear-gradient(135deg, #2563eb, #4f46e5);">
+              <i data-lucide="send"></i>
+              <span>계정 승인 요청하기</span>
+            </button>
+          </div>
+        </div>
+
+        <!-- 승인 요청 완료 시 노출되는 안내 화면 -->
+        <div id="registerSuccessView" style="display: none; flex-direction: column; align-items: center; text-align: center; gap: 14px; padding: 18px 10px 6px;">
+          <div style="width: 48px; height: 48px; border-radius: 50%; background: #ecfdf5; border: 1px solid #a7f3d0; display: flex; align-items: center; justify-content: center; color: #059669; font-size: 22px; font-weight: 900;">
+            ✓
+          </div>
+          <div>
+            <div style="font-size: 1.02rem; font-weight: 800; color: #0f172a; margin-bottom: 6px;">승인 요청이 접수되었습니다</div>
+            <div id="registerSuccessText" style="font-size: 0.82rem; color: #475569; line-height: 1.5; font-weight: 500;">
+              관리자가 권한등급 및 사용여부를 승인한 후 대시보드 접속이 가능합니다.
+            </div>
+          </div>
+          <button type="button" onclick="switchAuthModalTab('LOGIN')" class="btn btn-primary btn-login-submit" style="width: 100%; margin-top: 4px;">
+            <span>확인 (창 닫기)</span>
+          </button>
+        </div>
       </form>
     </div>
   </div>
@@ -110,8 +238,8 @@
             <div style="display: flex; align-items: center; gap: 8px; flex-wrap: nowrap;">
               <h1 style="font-size: 1.95rem; font-weight: 900; color: #0f172a; display: flex; align-items: center; gap: 6px; letter-spacing: -0.8px; line-height: 1; white-space: nowrap; margin: 0;">
                 SEMS
-                <span id="btnVersionBadge" onclick="openVersionModal(event)" class="version-badge" style="font-size: 0.76rem; padding: 2px 9px; border-radius: 10px; background: linear-gradient(135deg, #2563eb, #7c3aed); cursor: pointer; display: inline-flex; align-items: center; gap: 4px; box-shadow: 0 2px 5px rgba(37,99,235,0.25); transition: all 0.2s ease; position: relative; z-index: 100; pointer-events: auto; user-select: none;" title="Ver 1.4 업데이트 변경 내역 보기">
-                  Ver 1.4
+                <span id="btnVersionBadge" onclick="openVersionModal(event)" class="version-badge" style="font-size: 0.76rem; padding: 2px 9px; border-radius: 10px; background: linear-gradient(135deg, #2563eb, #7c3aed); cursor: pointer; display: inline-flex; align-items: center; gap: 4px; box-shadow: 0 2px 5px rgba(37,99,235,0.25); transition: all 0.2s ease; position: relative; z-index: 100; pointer-events: auto; user-select: none;" title="Ver 1.5 업데이트 변경 내역 보기">
+                  Ver 1.5
                   <i data-lucide="info" style="width: 12px; height: 12px; opacity: 0.9; pointer-events: none;"></i>
                 </span>
               </h1>
@@ -126,6 +254,12 @@
 
       <!-- Perfectly Aligned Header Action Buttons -->
       <div class="header-actions">
+        <!-- Logged-in User & Role Badge -->
+        <div id="userRoleBadge" class="timestamp-sub-badge" style="display: none; background: #f8fafc; border: 1px solid #cbd5e1; padding: 0 10px; border-radius: 8px; gap: 6px;" title="현재 로그인된 계정 및 열람 권한">
+          <i data-lucide="user-check" style="width:14px; height:14px; color:#2563eb; flex-shrink:0;"></i>
+          <span id="userRoleBadgeText" style="font-size: 0.76rem; font-weight: 700; color: #0f172a;"></span>
+        </div>
+
         <!-- Sub Timestamp Badge -->
         <div id="dataTimestampBadge" class="timestamp-sub-badge" title="도로굴착복구시스템 DB 갱신 상태">
           <i data-lucide="database" style="width:14px; height:14px; color:#475569; flex-shrink:0;"></i>
@@ -471,12 +605,12 @@
     </div>
   </div>
 
-  <!-- Ver 1.4 Update Release Notes Modal (Cumulative History) -->
+  <!-- Ver 1.5 Update Release Notes Modal (Cumulative History) -->
   <div id="versionModalOverlay" class="modal-overlay" onclick="if(event.target===this) closeVersionModal(event)" style="display: none; z-index: 99999;">
     <div class="modal-content" style="max-width: 480px; width: 92%; max-height: 85vh; border-radius: 16px; padding: 22px; background: #ffffff; box-shadow: 0 20px 25px -5px rgba(15, 23, 42, 0.15), 0 10px 10px -5px rgba(15, 23, 42, 0.08); border: 1px solid #e2e8f0; display: flex; flex-direction: column;">
       <div style="display: flex; justify-content: space-between; align-items: center; padding-bottom: 12px; border-bottom: 1px solid #f1f5f9; margin-bottom: 14px; flex-shrink: 0;">
         <div style="display: flex; align-items: center; gap: 8px;">
-          <span style="font-size: 0.76rem; font-weight: 800; color: #ffffff; background: linear-gradient(135deg, #2563eb, #7c3aed); padding: 3px 10px; border-radius: 10px;">Ver 1.4</span>
+          <span style="font-size: 0.76rem; font-weight: 800; color: #ffffff; background: linear-gradient(135deg, #2563eb, #7c3aed); padding: 3px 10px; border-radius: 10px;">Ver 1.5</span>
           <h3 style="font-size: 1.05rem; font-weight: 800; color: #0f172a; margin: 0; letter-spacing: -0.3px;">업데이트 상세이력</h3>
         </div>
         <button id="btnCloseVersionModal" onclick="closeVersionModal()" style="background: none; border: none; font-size: 1.25rem; color: #94a3b8; cursor: pointer; padding: 2px 6px; border-radius: 6px; line-height: 1;">&times;</button>
@@ -485,22 +619,43 @@
       <!-- Scrollable History Container for Cumulative Logs -->
       <div style="overflow-y: auto; padding-right: 4px; display: flex; flex-direction: column; gap: 12px; max-height: 440px; margin-bottom: 14px;">
         
-        <!-- Ver 1.4 (Current) -->
+        <!-- Ver 1.5 (Current) -->
         <div style="background: #f8fafc; border: 1px solid #cbd5e1; border-radius: 10px; padding: 14px 16px;">
           <div style="font-weight: 800; color: #1e293b; font-size: 0.88rem; margin-bottom: 8px; display: flex; align-items: center; justify-content: space-between;">
             <span style="display: inline-flex; align-items: center; gap: 6px; color: #1e40af;">
               <i data-lucide="sparkles" style="width: 15px; height: 15px; color: #2563eb;"></i>
-              Ver 1.4 업데이트 반영내용
+              Ver 1.5 업데이트 반영내용
             </span>
-            <span style="font-size: 0.76rem; font-weight: 600; color: #2563eb; background: #eff6ff; padding: 2px 8px; border-radius: 6px; border: 1px solid #bfdbfe;">26.11.02</span>
+            <span style="font-size: 0.76rem; font-weight: 600; color: #2563eb; background: #eff6ff; padding: 2px 8px; border-radius: 6px; border: 1px solid #bfdbfe;">26.11.05</span>
           </div>
           <div style="padding-left: 6px; display: flex; flex-direction: column; gap: 6px;">
             <div style="display: flex; align-items: flex-start; gap: 8px; font-size: 0.84rem; color: #334155; font-weight: 600; line-height: 1.5;">
               <span style="color: #2563eb; font-weight: 800;">•</span>
+              <span>사용자 계정 승인 요청 기능 업데이트 (관리자 이메일 알림 및 접속이력 관리)</span>
+            </div>
+          </div>
+        </div>
+
+        <!-- Ver 1.4 -->
+        <div style="background: #f8fafc; border: 1px solid #e2e8f0; border-radius: 10px; padding: 14px 16px;">
+          <div style="font-weight: 800; color: #1e293b; font-size: 0.88rem; margin-bottom: 8px; display: flex; align-items: center; justify-content: space-between;">
+            <span style="display: inline-flex; align-items: center; gap: 6px; color: #475569;">
+              <i data-lucide="history" style="width: 15px; height: 15px; color: #64748b;"></i>
+              Ver 1.4 업데이트 반영내용
+            </span>
+            <span style="font-size: 0.76rem; font-weight: 600; color: #64748b; background: #ffffff; padding: 2px 8px; border-radius: 6px; border: 1px solid #cbd5e1;">26.11.02</span>
+          </div>
+          <div style="padding-left: 6px; display: flex; flex-direction: column; gap: 6px;">
+            <div style="display: flex; align-items: flex-start; gap: 8px; font-size: 0.84rem; color: #334155; font-weight: 600; line-height: 1.5;">
+              <span style="color: #64748b; font-weight: 800;">•</span>
+              <span>구글 시트(SEMS_계정관리) 연동 다중 계정 및 권한별 열람 제어 적용</span>
+            </div>
+            <div style="display: flex; align-items: flex-start; gap: 8px; font-size: 0.84rem; color: #334155; font-weight: 600; line-height: 1.5;">
+              <span style="color: #64748b; font-weight: 800;">•</span>
               <span>보안 취약점 패치(서버리스 토큰 인증 및 API 접근 보안 강화)</span>
             </div>
             <div style="display: flex; align-items: flex-start; gap: 8px; font-size: 0.84rem; color: #334155; font-weight: 600; line-height: 1.5;">
-              <span style="color: #2563eb; font-weight: 800;">•</span>
+              <span style="color: #64748b; font-weight: 800;">•</span>
               <span>클라이언트 평문 인증정보 제거 및 XSS 방어 로직 적용</span>
             </div>
           </div>
@@ -622,6 +777,7 @@
     </div>
   </div>
 
+  <script src="auth.js"></script>
   <script src="app.js"></script>
 </body>
 </html>
